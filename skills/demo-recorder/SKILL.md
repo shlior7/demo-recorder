@@ -183,6 +183,8 @@ Baked-in lessons (don't relearn):
 - `zoom` waits for the target to stop reflowing, fits it on screen (wide cards don't crop), zooms a
   `position:fixed` layer (side panel) itself instead of the page, and skips while a dialog is open.
   Zoom only the 2–4 moments that ARE the feature, after async content has fully landed.
+- `callout`/`shot`/cursor moves scroll a target out from under a sticky/fixed header first (plain
+  scroll-into-view treats it as visible); a target hidden by a modal or the zoom is not auto-fixed.
 - Waits > ~2 s go in `waitFor`/`actAndWait`/`fastForward` → played 8× faster with a ⏩ caption. Never
   pad with fixed sleeps to "wait for" a backend. `failOn` makes waits die in seconds on error UI.
 - `type` replaces existing text and caps typing at ~3.5 s; `tap` dispatches for animated elements.

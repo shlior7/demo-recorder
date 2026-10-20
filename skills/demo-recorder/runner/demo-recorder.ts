@@ -385,6 +385,7 @@ export async function callout(
 ): Promise<void> {
   const { keep = false, ring = calloutCfg.ring, replace = true } = opts;
   const holdMs = Math.max(opts.holdMs ?? 0, readMs(text)); // never shorter than its reading time
+  await reveal(page, target);
   const box = await stableBox(page, target);
   if (!box) return;
   const now = (Date.now() - t0) / 1000;
@@ -540,11 +541,39 @@ export async function humanMove(page: Page, x: number, y: number): Promise<void>
   await page.waitForTimeout(200);
 }
 
+/** Scroll `locator` into view AND out from under any position:fixed/sticky bar — Playwright's
+ *  scrollIntoViewIfNeeded counts an element hidden behind a sticky header as visible. Does nothing
+ *  extra when the target is already unobscured (no jitter), or while zoomed (scrolling would wreck it). */
+async function reveal(page: Page, locator: Locator): Promise<void> {
+  await locator.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(280); // let smooth-scroll settle before reading coordinates
+  const scrolled = await locator
+    .evaluate(
+      (el, own) => {
+        if (document.body.style.transform || (document.querySelector('[data-demo-zoom-root]') as HTMLElement | null)?.style.transform) return false;
+        const r = el.getBoundingClientRect();
+        const covered = [0.25, 0.5, 0.75].some((f) => {
+          const x = r.left + r.width * f;
+          const y = r.top + r.height / 2;
+          const hit = document.elementsFromPoint(x, y).find((e) => !own.some((id) => e.closest('#' + id)));
+          if (!hit || hit === document.documentElement || hit === document.body) return false;
+          if (el.contains(hit)) return false;
+          for (let n: Node | null = el; n; n = n.parentNode || (n as ShadowRoot).host) if (n === hit) return false;
+          return true;
+        });
+        if (covered) el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+        return covered;
+      },
+      [HUD_ID, CURSOR_ID, CALLOUTS_ID]
+    )
+    .catch(() => false);
+  if (scrolled) await page.waitForTimeout(280);
+}
+
 /** Glide the cursor to a locator's center. Scrolls the target into view FIRST so the page settles
  *  before the glide — otherwise the click's own auto-scroll jerks the view mid-action. */
 export async function moveTo(page: Page, locator: Locator): Promise<void> {
-  await locator.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
-  await page.waitForTimeout(280); // let smooth-scroll settle before reading coordinates
+  await reveal(page, locator);
   const box = await locator.boundingBox().catch(() => null);
   if (!box) return;
   await humanMove(page, box.x + box.width / 2, box.y + box.height / 2);
@@ -656,6 +685,7 @@ export async function shot(
   }, highlight).catch(() => '') : '';
   await toggle(true);
   try {
+    if (target) await reveal(page, target);
     let box = target ? await target.boundingBox().catch(() => null) : null;
     const vp = page.viewportSize();
     if (box && calloutCfg.inShots) {
