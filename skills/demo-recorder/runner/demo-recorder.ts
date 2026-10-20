@@ -210,7 +210,8 @@ async function voiceFor(text: string): Promise<{ file: string; ms: number } | nu
   const say = spoken(text);
   if (!VOICE || !say) return null;
   const dir = process.env.DEMO_VOICE_CACHE!;
-  const file = join(dir, `${createHash('sha1').update(JSON.stringify({ say, ...VOICE })).digest('hex').slice(0, 16)}.wav`);
+  // tts: bump when voice.py changes how a line is read, so cached clips are re-synthesised
+  const file = join(dir, `${createHash('sha1').update(JSON.stringify({ say, ...VOICE, tts: 2 })).digest('hex').slice(0, 16)}.wav`);
   if (existsSync(`${file}.json`)) return { file, ms: JSON.parse(readFileSync(`${file}.json`, 'utf8')).ms };
   mkdirSync(dir, { recursive: true });
   if (!tts) {
