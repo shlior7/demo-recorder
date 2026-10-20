@@ -1,0 +1,23 @@
+{
+  "hud": {
+    "position": "auto",
+    "size": "md",
+    "theme": "dark"
+  },
+  "callout": {
+    "color": "#f43f5e",
+    "ring": true,
+    "inShots": true
+  },
+  "share": {
+    "pr": "unset",
+    "jira": "unset",
+    "video": "link",
+    "assetsBranch": "demo-assets",
+    "page": {
+      "deploy": "",
+      "url": "",
+      "pull": ""
+    }
+  }
+}

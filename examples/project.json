@@ -1,0 +1,16 @@
+{
+  "name": "my-app",
+  "baseUrl": "http://localhost:3000",
+  "start": [
+    { "name": "api", "cwd": "server", "command": "npm run dev", "ready": "http://localhost:4000/health", "env": { "PORT": "4000" } },
+    { "name": "web", "cwd": ".", "command": "npm run dev -- --port 3000 --strictPort", "ready": "http://localhost:3000", "env": { "API_URL": "http://localhost:4000" } }
+  ],
+  "auth": null,
+  "viewport": "1680x1050",
+  "colorScheme": "light",
+  "forbid": ["/delete/i", "/remove/i", "/publish/i", "/deploy/i", "/send invite/i"],
+  "failOn": [{ "text": "/something went wrong|internal server error/i" }, { "role": "alert" }],
+  "localStorage": { "my-app:onboarding:": "done", "cookie-consent": "accepted" },
+  "look": {},
+  "notes": ["Seed demo data with: npm run seed:demo (writes to a local SQLite file)"]
+}

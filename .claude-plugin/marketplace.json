@@ -1,0 +1,11 @@
+{
+  "name": "demo-recorder",
+  "owner": { "name": "Lior Steinberg", "url": "https://github.com/shlior7" },
+  "plugins": [
+    {
+      "name": "demo-recorder",
+      "source": ".",
+      "description": "Record polished, narrated demo videos of any web app and post them to the PR."
+    }
+  ]
+}

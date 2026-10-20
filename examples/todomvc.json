@@ -1,0 +1,35 @@
+{
+  "title": "TodoMVC · add, complete and filter todos",
+  "baseUrl": "https://demo.playwright.dev/todomvc/",
+  "forbid": ["/clear completed/i"],
+  "steps": [
+    { "goto": "./" },
+    { "start": true },
+    { "caption": "TodoMVC · a 30-second tour", "hold": 2000 },
+
+    { "caption": "Add a few todos" },
+    { "type": { "placeholder": "What needs to be done?" }, "text": "Record a demo video" },
+    { "press": "Enter" },
+    { "type": { "placeholder": "What needs to be done?" }, "text": "Post it to the PR" },
+    { "press": "Enter" },
+    { "type": { "placeholder": "What needs to be done?" }, "text": "Ship it" },
+    { "press": "Enter" },
+    { "callout": { "testId": "todo-count" }, "text": "The counter keeps up", "hold": 2200 },
+
+    { "caption": "Complete one" },
+    { "zoom": { "role": "listitem", "first": true }, "scale": 1.5, "do": [
+      { "click": { "role": "checkbox", "name": "Toggle Todo", "in": { "role": "listitem", "first": true } } },
+      { "callout": { "role": "listitem", "first": true }, "text": "Done — struck through", "hold": 2200 }
+    ] },
+    { "shot": "list-with-a-done-item", "target": { "css": ".todoapp" }, "pad": 16 },
+
+    { "caption": "Filter what's left" },
+    { "click": { "role": "link", "name": "Active" } },
+    { "callout": { "role": "link", "name": "Active" }, "text": "Only the open todos", "hold": 2200 },
+    { "click": { "role": "link", "name": "All" } },
+
+    { "caption": "That's the whole flow", "hold": 2000 },
+    { "shot": "final-state" },
+    { "hud": "" }
+  ]
+}

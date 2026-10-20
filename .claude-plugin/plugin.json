@@ -1,0 +1,10 @@
+{
+  "name": "demo-recorder",
+  "version": "0.1.0",
+  "description": "Record polished, narrated demo videos of any web app (cursor, captions, arrow callouts, zoom, clean screenshots) from a JSON manifest or Playwright spec, and post them to the PR.",
+  "author": { "name": "Lior Steinberg", "url": "https://github.com/shlior7" },
+  "homepage": "https://github.com/shlior7/demo-recorder",
+  "repository": "https://github.com/shlior7/demo-recorder",
+  "license": "MIT",
+  "keywords": ["demo", "video", "screen-recording", "playwright", "pull-request", "showcase", "skill"]
+}

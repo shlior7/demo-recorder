@@ -1,0 +1,7 @@
+{
+  "name": "demo-recorder-runner",
+  "private": true,
+  "devDependencies": {
+    "@playwright/test": "^1.56.0"
+  }
+}
