@@ -209,7 +209,14 @@ on another machine are kept. Recordings of private work should go to a host with
 ```bash
 $R/record-demo.sh voice "Ask the chat for a better description"   # one-time install + a sample with your settings
 $R/record-demo.sh <demo.json> --voice                              # every step title read aloud
+$R/record-demo.sh revoice <take.mp4> --tries 8                      # re-read a finished take's captions, video untouched
 ```
+
+`revoice` re-reads every caption of a finished take with the current `voice.*` settings, at the same
+moments, and writes `<take>-revoiced.mp4`. The video stream is copied as is. Use it after changing the
+voice, to give a silent take a voice, or with `--tries N` to re-read a line until its ending falls,
+keeping the lowest of N readings. It warns if a line runs into the next caption: a take recorded
+without `--voice` doesn't wait for speech, so re-record that one with `--voice`.
 
 Each caption is spoken once it appears, and stays on screen until its line has finished — so the
 video paces itself to the voice. Clips are cached by text and settings (re-takes only synthesise

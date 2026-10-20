@@ -211,7 +211,7 @@ async function voiceFor(text: string): Promise<{ file: string; ms: number } | nu
   if (!VOICE || !say) return null;
   const dir = process.env.DEMO_VOICE_CACHE!;
   // tts: bump when voice.py changes how a line is read, so cached clips are re-synthesised
-  const file = join(dir, `${createHash('sha1').update(JSON.stringify({ say, ...VOICE, tts: 2 })).digest('hex').slice(0, 16)}.wav`);
+  const file = join(dir, `${createHash('sha1').update(JSON.stringify({ say, ...VOICE, tts: 3 })).digest('hex').slice(0, 16)}.wav`);
   if (existsSync(`${file}.json`)) return { file, ms: JSON.parse(readFileSync(`${file}.json`, 'utf8')).ms };
   mkdirSync(dir, { recursive: true });
   if (!tts) {
@@ -327,7 +327,7 @@ export async function hud(page: Page, text: string): Promise<void> {
   console.log(`[step +${(deltaMs / 1000).toFixed(1)}s] ${text}`);
   lastStepAt = now;
   lastCaption = text;
-  if (text) steps.push({ t: (now - t0) / 1000, text });
+  if (text) steps.push({ t: (now - t0) / 1000, text, say: spoken(text) }); // say: what the voice reads (revoice re-reads it)
   await paint(page, text, voice?.file);
 }
 

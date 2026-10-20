@@ -18,6 +18,7 @@
 #   record-demo.sh login <name> --from brave|chrome [--domain d] # reuse your browser's login (macOS)
 #   record-demo.sh config [key [value]]            # global settings (hud.*, callout.*, voice.*, share.*)
 #   record-demo.sh voice ["Some caption"]          # install Chatterbox (once) and read a line with voice.* settings
+#   record-demo.sh revoice <take.mp4> [--tries N]  # re-read a take's captions with the current voice.* (video untouched)
 #   record-demo.sh share <video.mp4> --repo <worktree> [--pr N] [--video attach|page|link]
 #
 # Output: $DEMO_HOME/videos/<project>/<demo>-<ts>.mp4 + -shots/ (stills) + -steps/ (a frame per
@@ -94,7 +95,7 @@ set -- ${ARGS[@]+"${ARGS[@]}"}
 
 case "$CMD" in
   ""|-h|--help)
-    sed -n 3,25p "$0"; exit 0 ;;
+    sed -n 3,26p "$0"; exit 0 ;;
 
   init)
     shift; sync_runner >/dev/null
@@ -226,6 +227,18 @@ case "$CMD" in
     DEMO_VOICE_OPTS="$(config_json voice)" "$VOICE_PY" "$SKILL_DIR/runner/voice.py" --say "${1:-Ask the chat for a better description}" "$OUT" >/dev/null 2>&1
     echo "🔊 $(url_of "$OUT")"
     [[ -t 1 ]] && command -v afplay >/dev/null && afplay "$OUT"
+    exit 0 ;;
+
+  revoice)
+    # re-read every caption of a finished take with the current voice.* settings; the video is copied as is
+    shift; TAKE="${1:?usage: record-demo.sh revoice <take.mp4> [--tries N]}"; TRIES=1
+    [[ "${2:-}" == --tries ]] && TRIES="${3:?--tries N}"
+    [[ -f "$TAKE" ]] || { echo "✗ Not found: $TAKE" >&2; exit 1; }
+    sync_runner >/dev/null; ensure_voice
+    OUT="${TAKE%.mp4}-revoiced.mp4"
+    echo "▶ Re-voicing $(basename "$TAKE") with voice = $(config_json voice | tr -d '\n ')$([[ $TRIES -gt 1 ]] && echo ", up to $TRIES readings a line")"
+    DEMO_VOICE_OPTS="$(config_json voice)" "$VOICE_PY" "$SKILL_DIR/runner/revoice.py" "$TAKE" "$OUT" "$TRIES" || exit 1
+    echo "🎬 $(url_of "$OUT")"
     exit 0 ;;
 
   share)

@@ -246,7 +246,10 @@ URL/auth/viewport come from flags > manifest > project.json. `--voice` (or `conf
 true`) narrates every caption with Chatterbox TTS: first use installs it into `$DEMO_HOME/voice`
 (several GB, minutes — tell the user before the first voiced take); `record-demo.sh voice "text"`
 auditions the current `voice.*` settings (`energy`: `calm` · `warm` · `upbeat` default · `rainbow` =
-max excitement; `ref` = a .wav to clone). The video is saved even when a step
+max excitement; `ref` = a .wav to clone). Video right, voice not (new voice settings, a silent take that
+should talk, a line that ends "open")? `record-demo.sh revoice <take.mp4> [--tries N]` re-reads the
+captions at the same moments → `<take>-revoiced.mp4`, video untouched; `--tries 8` re-reads a line until
+its ending falls. Don't re-record for that. The video is saved even when a step
 fails (exit code still reflects it). `--open` on the take you hand back, not while iterating.
 
 ## 7. Verify — always, before handing back
