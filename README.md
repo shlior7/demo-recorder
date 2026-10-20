@@ -120,6 +120,22 @@ deterministic takes. Full reference: the header of
 [`runner/manifest.spec.ts`](skills/demo-recorder/runner/manifest.spec.ts). Need loops or logic? Write a
 spec instead: `import { test, demo } from 'demo-recorder'` — see [`examples/todomvc.spec.ts`](examples/todomvc.spec.ts).
 
+### Recording a terminal (CLI, TUI, Claude Code)
+
+Serve it in the browser with [ttyd](https://github.com/tsl0922/ttyd) and record the page — with the
+DOM renderer, so the text is real DOM that locators and callouts can find:
+
+```bash
+ttyd -p 7681 -W -t rendererType=dom -t fontSize=19 -t disableLeaveAlert=true env PS1='$ ' PAGER=cat bash --norc
+$R/record-demo.sh examples/terminal.spec.ts --url http://127.0.0.1:7681
+```
+
+[`examples/terminal.spec.ts`](examples/terminal.spec.ts) types at the cursor, waits for the next
+prompt, and calls out a row. Keep the whole take on that one page (navigating away kills the
+shell). Recording Claude Code started from inside Claude Code? Unset the inherited `CLAUDE*`
+variables before `ttyd` (`for v in $(env | grep -oE "^CLAUDE[A-Z_]*"); do unset $v; done`), or the inner session won't save
+its transcript.
+
 ## Output
 
 ```
@@ -127,7 +143,12 @@ spec instead: `import { test, demo } from 'demo-recorder'` — see [`examples/to
                                   …-shots/*.png             clean stills for the PR / ticket
                                   …-steps/*.png             one frame per caption/callout — check these
                                   …-sheet.png               3×3 contact sheet
+                                  …-chapters.json           every caption, callout, fast-forward and still, in final-video seconds
 ```
+
+`-chapters.json` is for anything that plays the take — a player, the PR page, a preview inside
+another recording: `[{ "t": 4.07, "end": 4.39, "kind": "fastForward", "text": "…" }, …]` with
+`kind` one of `caption` · `callout` · `fastForward` (has `end`) · `still` · `cut`.
 
 ## Sharing to the PR
 

@@ -19,10 +19,10 @@ directory this SKILL.md lives in. Everything goes through `"$S/record-demo.sh"` 
 $DEMO_HOME/
   config.json                         global settings (look, sharing) — `record-demo.sh config`
   projects/<project>/project.json     per-project settings (URL, start commands, auth, safety)
-  projects/<project>/NOTES.md         prose gotchas learned while recording this project
+  projects/<project>/NOTES.md         lessons + recipes learned while recording this project (not a take log)
   projects/<project>/demos/*.json     demo manifests (or *.spec.ts) — edit and re-run any time
   auth/<name>.json                    saved logins (owner-only) — never print, copy or upload
-  videos/<project>/<demo>-<ts>.mp4    output (+ -shots/ -steps/ -sheet.png .webm)
+  videos/<project>/<demo>-<ts>.mp4    output (+ -shots/ -steps/ -sheet.png -chapters.json .webm)
   runs/<id>/                          one per take in progress (runner snapshot + raw output), removed when it ends
 <repo>/.demo-recorder/project.json    optional TEAM variant of project.json (committed, no `root`)
 ```
@@ -49,6 +49,10 @@ detects the package manager, dev script and framework port, then **finish it by 
 
 Every demo of the project inherits `forbid`, `failOn`, `localStorage`, `look`, `baseUrl`, `auth`,
 `viewport` automatically. Read `NOTES.md` too. Update both whenever you learn something.
+- `NOTES.md` holds lessons and recipes, **not a log of takes** — no "13:34 voiced re-take --voice
+  --speed 1.3" lines. Take flags (`--voice`, `--speed`, look) come from the user's request and
+  `config`, never from earlier takes: a logged one turns the next plain "record PR 140" into a
+  voiced 1.3× take.
 
 ## 1. Storyboard from the change ("record my branch / PR N")
 
@@ -192,12 +196,41 @@ Baked-in lessons (don't relearn):
 - `shot` = clean still (no cursor/caption bar; callouts kept unless `callout.inShots` is false), cropped
   to the target + padding, grown to include callout bubbles; its capture moment is cut from the video.
 - One-time popups → `localStorage` prefixes (find keys in the app source or DevTools), not clicks.
+- Callouts follow their target while shown (scroll, reflow, terminal output arriving).
+- Playing a take inside a recorded page (a player overlay, a results page): Playwright's Chromium
+  has **no H.264** — use the take's `.webm` or a VP9 transcode (`ffmpeg -i x.mp4 -c:v libvpx-vp9
+  -deadline realtime -cpu-used 8 -b:v 3M -an x.webm`). Seek it with `-chapters.json` (final-video
+  seconds of every caption, callout, fast-forward, still) — don't re-derive them from raw times.
+
+### Recording a CLI / TUI (incl. Claude Code itself)
+
+Serve the terminal in the browser with [ttyd](https://github.com/tsl0922/ttyd) and record that page
+(`$S/../../examples/terminal.spec.ts` runs against a plain shell). A `start[]` entry:
+`for v in $(env | grep -oE "^CLAUDE[A-Z_]*"); do unset $v; done; exec ttyd -p 7681 -W -t rendererType=dom -t fontSize=19 -t disableLeaveAlert=true zsh -l`
+- `-t rendererType=dom`: the default canvas/webgl renderer has no DOM text — `getByText`/callouts
+  see nothing. `fontSize=19` reads in the video. Set `PAGER=cat` (or `git --no-pager`) — a pager
+  blocks the flow.
+- Recording Claude Code from inside Claude Code: the launcher must unset the inherited `CLAUDE*`
+  env (the `unset` above), else the inner one says "Transcript saving is off — inherited
+  CLAUDE_CODE_CHILD_SESSION marker".
+- Type with `demo.moveTo(page, page.locator('.xterm-cursor'))` + `page.keyboard.type(…)` + Enter —
+  not `slowType` (it selects-all first: right for inputs, wrong for a shell).
+- Rows are `.xterm-rows > div` → `.filter({ hasText: /…/ }).last()`.
+- **Never `page.goto` away mid-flow** — closing the socket kills the shell and the agent in it, and
+  ttyd starts a fresh shell per connection. Show other things in an overlay on the terminal page.
+- Wait on screen text, never sleeps: a shell → the next empty prompt row; Claude Code → a **new**
+  `<Verb>ed for 1m 42s · done` line (the previous turn's line stays on screen — compare against
+  it) and no `…` spinner line. Wrap the turn in `fastForward`. Keep prompts asking for short replies
+  or the rows you want to call out scroll off.
 
 ## 6. Record
 
 ```bash
 "$S/record-demo.sh" $DEMO_HOME/projects/<p>/demos/<flow>.json [--speed 1.2] [--voice] [--headed] [--open]
 ```
+
+An explicit "record …" request means **a new take** — mention a recent existing take if useful,
+never hand it back instead.
 
 URL/auth/viewport come from flags > manifest > project.json. `--voice` (or `config voice.enabled
 true`) narrates every caption with Chatterbox TTS: first use installs it into `$DEMO_HOME/voice`
@@ -241,4 +274,5 @@ A green run proves nothing about the screen. Fix and re-record until all three l
 - **Jira/issue tracker** (`share.jira`): find candidate keys (`[A-Z][A-Z0-9]+-\d+`) in branch / PR
   title / commits and **confirm each exists** with the tracker tool (`ADR-016`, `UTF-8` look like keys).
   Post the "Jira comment" block `share` printed (links only — never base64 a video through a tool).
-- Stop every server you started (`down`), remove temp worktrees, update `project.json` + `NOTES.md`.
+- Stop every server you started (`down`), remove temp worktrees, update `project.json` + `NOTES.md`
+  (lessons, not takes).
