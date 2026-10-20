@@ -188,10 +188,12 @@ function cutSince(start: number): void {
 // ── Voice (record-demo.sh --voice): each caption read aloud by Chatterbox TTS ──
 // Clips are cached by text + voice settings, so a re-take only synthesises captions that changed; the
 // seconds spent synthesising are cut from the video. The caption stays up until its clip has played.
-const VOICE = process.env.DEMO_VOICE ? { exaggeration: 0.7, cfg: 0.3, temperature: 0.8, ref: '', ...userCfg.voice } : null;
+// Delivery — voice.energy (calm → rainbow) plus optional exaggeration/cfg/temperature overrides — is
+// resolved by voice.py; the whole config is part of the cache key.
+const VOICE = process.env.DEMO_VOICE ? { energy: 'upbeat', ref: '', ...userCfg.voice } : null;
 let tts: { proc: ChildProcessWithoutNullStreams; replies: AsyncIterator<string> } | null = null;
 
-/** Caption → what the voice should say: symbols read out or dropped, ends on "!" for an upbeat read. */
+/** Caption → what the voice should say: symbols read out or dropped. */
 export function spoken(text: string): string {
   const t = text
     .replace(/[⏩✓✔]/gu, '')
@@ -200,7 +202,7 @@ export function spoken(text: string): string {
     .replace(/#(?=\d)/g, '')
     .replace(/[\s,]+$/, '')
     .trim();
-  return t && !/[.!?…]$/.test(t) ? `${t}!` : t;
+  return t;
 }
 
 async function voiceFor(text: string): Promise<{ file: string; ms: number } | null> {

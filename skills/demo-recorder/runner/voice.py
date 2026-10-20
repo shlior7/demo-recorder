@@ -1,7 +1,7 @@
 """Chatterbox TTS worker for `record-demo.sh --voice`: reads each caption aloud.
 
   voice.py                 one JSON request per stdin line → one JSON reply per stdout line
-                           {"text", "out", "exaggeration", "cfg", "temperature", "ref"} → {"out", "seconds"}
+                           {"text", "out", "energy", "exaggeration", "cfg", "temperature", "ref"} → {"out", "seconds"}
   voice.py --say TEXT OUT  one clip (setup check / audition a voice config), opts as JSON in $DEMO_VOICE_OPTS
 
 The model loads once per run (first use downloads ~3 GB of weights from Hugging Face).
@@ -20,13 +20,28 @@ device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is
 model = ChatterboxTTS.from_pretrained(device=device)
 
 
+# voice.energy → (exaggeration, cfg_weight, temperature, ending). exaggeration = emotion (0.5 ≈ neutral),
+# lower cfg = livelier pacing; rainbow is the max, and ends lines on "!".
+ENERGY = {
+    "calm": (0.4, 0.5, 0.6, "."),
+    "warm": (0.45, 0.4, 0.6, "."),
+    "upbeat": (0.55, 0.4, 0.65, "."),
+    "rainbow": (0.7, 0.3, 0.8, "!"),
+}
+
+
 def say(req):
+    level = ENERGY.get(req.get("energy"), ENERGY["upbeat"])
+    pick = lambda key, i: float(req[key]) if req.get(key) not in (None, "") else level[i]  # explicit numbers win
+    text = req["text"].strip()
+    if text[-1:] not in ".!?…":
+        text += level[3]
     wav = model.generate(
-        req["text"],
+        text,
         audio_prompt_path=req.get("ref") or None,  # a 10–30 s clip of the voice to clone; empty = built-in voice
-        exaggeration=float(req.get("exaggeration", 0.7)),  # emotion: 0.5 neutral … 1 very animated
-        cfg_weight=float(req.get("cfg", 0.3)),  # lower = livelier, slower-paced delivery
-        temperature=float(req.get("temperature", 0.8)),
+        exaggeration=pick("exaggeration", 0),
+        cfg_weight=pick("cfg", 1),
+        temperature=pick("temperature", 2),
     )
     torchaudio.save(req["out"], wav, model.sr)
     return {"out": req["out"], "seconds": wav.shape[-1] / model.sr}

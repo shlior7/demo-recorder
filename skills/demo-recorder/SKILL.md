@@ -201,8 +201,8 @@ Baked-in lessons (don't relearn):
 URL/auth/viewport come from flags > manifest > project.json. `--voice` (or `config voice.enabled
 true`) narrates every caption with Chatterbox TTS: first use installs it into `$DEMO_HOME/voice`
 (several GB, minutes — tell the user before the first voiced take); `record-demo.sh voice "text"`
-auditions the current `voice.*` settings (`exaggeration` 0.7 / `cfg` 0.3 = upbeat; `ref` = a .wav to
-clone). The video is saved even when a step
+auditions the current `voice.*` settings (`energy`: `calm` · `warm` · `upbeat` default · `rainbow` =
+max excitement; `ref` = a .wav to clone). The video is saved even when a step
 fails (exit code still reflects it). `--open` on the take you hand back, not while iterating.
 
 ## 7. Verify — always, before handing back

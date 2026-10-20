@@ -31,6 +31,7 @@ const ALLOWED = {
   'callout.ring': ['true', 'false'],
   'callout.inShots': ['true', 'false'],
   'voice.enabled': ['true', 'false'],
+  'voice.energy': ['calm', 'warm', 'upbeat', 'rainbow'],
 };
 
 const defaults = read(defaultsFile);

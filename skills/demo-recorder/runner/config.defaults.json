@@ -13,9 +13,10 @@
   },
   "voice": {
     "enabled": false,
-    "exaggeration": 0.7,
-    "cfg": 0.3,
-    "temperature": 0.8,
+    "energy": "upbeat",
+    "exaggeration": null,
+    "cfg": null,
+    "temperature": null,
     "ref": ""
   },
   "share": {

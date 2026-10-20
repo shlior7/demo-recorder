@@ -15,7 +15,7 @@ the video and screenshots to the pull request.
 - **Demos are data** — a JSON manifest of steps you can edit and re-run (or a Playwright spec when you need logic).
 - **Per-project settings** — URL, start commands, auth, never-click rules — in one `project.json`.
 - **Captions never cover the app** — the step title sits in a fixed bar above the page, in the same spot all video long.
-- **Optional voice-over** — `--voice` reads each step title aloud with [Chatterbox](https://github.com/resemble-ai/chatterbox) TTS, upbeat and natural; local, free, cached.
+- **Optional voice-over** — `--voice` reads each step title aloud with [Chatterbox](https://github.com/resemble-ai/chatterbox) TTS, clear and natural, at the energy you pick; local, free, cached.
 - **Verified, not hoped** — every run emits a frame per caption and a contact sheet to check before sharing.
 - **PR-ready** — inline video in the PR comment, screenshots in a grid, or a per-PR page with one tab per recording.
 
@@ -174,7 +174,8 @@ on another machine are kept. Recordings of private work should go to a host with
 | `hud.size`, `hud.theme` | `sm`/`md`/`lg`, `dark`/`light` |
 | `hud.wpm`, `hud.minMs` | reading speed and floor for how long every caption/callout stays up |
 | `voice.enabled` | `true` = always narrate (same as passing `--voice`; `--no-voice` overrides) |
-| `voice.exaggeration`, `voice.cfg`, `voice.temperature` | delivery: `0.7` / `0.3` / `0.8` = upbeat and lively; `0.5` / `0.5` = calm and neutral |
+| `voice.energy` | `calm` · `warm` · `upbeat` (default) · `rainbow` (max excitement) |
+| `voice.exaggeration`, `voice.cfg`, `voice.temperature` | fine-tune the level: emotion (0.5 ≈ neutral), pacing (lower = livelier), variation (lower = steadier, clearer) |
 | `voice.ref` | path to a 10–30 s `.wav` of a voice to clone (empty = Chatterbox's built-in voice) |
 | `callout.color`, `callout.ring`, `callout.inShots` | colour, ring around the target, keep callouts in stills |
 | `share.pr`, `share.jira` | `always` · `ask` · `never` |
