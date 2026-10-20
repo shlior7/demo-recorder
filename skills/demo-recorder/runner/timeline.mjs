@@ -95,7 +95,7 @@ const steps = read('steps.json');
 const sec = (t) => Number(out(t).toFixed(2));
 const chapters = [
   ...steps.map((st) =>
-    st.text.startsWith('↳') ? { t: sec(st.t), kind: 'callout', text: st.text.slice(2) } : { t: sec(st.t), kind: 'caption', text: st.text, ...(st.say && { say: st.say }) }
+    st.text.startsWith('↳') ? { t: sec(st.t), kind: 'callout', text: st.text.slice(2) } : { t: sec(st.t), kind: 'caption', text: st.text, ...(st.say !== undefined && { say: st.say }), ...(st.voice !== undefined && { voice: st.voice }) }
   ),
   ...kept.map((s) =>
     s.factor < 100

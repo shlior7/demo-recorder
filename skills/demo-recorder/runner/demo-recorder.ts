@@ -194,6 +194,10 @@ function cutSince(start: number, label?: string): void {
 const VOICE = process.env.DEMO_VOICE ? { energy: 'upbeat', ref: '', ...userCfg.voice } : null;
 let tts: { proc: ChildProcessWithoutNullStreams; replies: AsyncIterator<string> } | null = null;
 
+/** One line's voice, over the voice.* settings: any of them, `say` to speak other words than the caption
+ *  shows (punctuation for delivery: "Change a setting. Rerun. That's it!"), or false for a silent line. */
+export type LineVoice = false | { say?: string; energy?: 'calm' | 'warm' | 'upbeat' | 'rainbow'; exaggeration?: number; cfg?: number; temperature?: number; ref?: string };
+
 /** Caption → what the voice should say: symbols read out or dropped. */
 export function spoken(text: string): string {
   const t = text
@@ -206,12 +210,14 @@ export function spoken(text: string): string {
   return t;
 }
 
-async function voiceFor(text: string): Promise<{ file: string; ms: number } | null> {
-  const say = spoken(text);
+async function voiceFor(text: string, line?: LineVoice): Promise<{ file: string; ms: number } | null> {
+  if (line === false) return null;
+  const { say = spoken(text), ...over } = line ?? {};
   if (!VOICE || !say) return null;
+  const opts = { ...VOICE, ...over };
   const dir = process.env.DEMO_VOICE_CACHE!;
   // tts: bump when voice.py changes how a line is read, so cached clips are re-synthesised
-  const file = join(dir, `${createHash('sha1').update(JSON.stringify({ say, ...VOICE, tts: 3 })).digest('hex').slice(0, 16)}.wav`);
+  const file = join(dir, `${createHash('sha1').update(JSON.stringify({ say, ...opts, tts: 3 })).digest('hex').slice(0, 16)}.wav`);
   if (existsSync(`${file}.json`)) return { file, ms: JSON.parse(readFileSync(`${file}.json`, 'utf8')).ms };
   mkdirSync(dir, { recursive: true });
   if (!tts) {
@@ -220,7 +226,7 @@ async function voiceFor(text: string): Promise<{ file: string; ms: number } | nu
     proc.stderr.on('data', (d) => /error|Traceback/i.test(String(d)) && process.stderr.write(d)); // keep progress bars out of the log
     tts = { proc, replies: createInterface({ input: proc.stdout })[Symbol.asyncIterator]() };
   }
-  tts.proc.stdin.write(`${JSON.stringify({ ...VOICE, text: say, out: file })}\n`);
+  tts.proc.stdin.write(`${JSON.stringify({ ...opts, text: say, out: file })}\n`);
   const { value, done } = await tts.replies.next();
   const r = done ? { error: 'voice worker exited' } : JSON.parse(value);
   if (r.error) {
@@ -309,11 +315,11 @@ export async function fakeLocalStorage(page: Page, values: Record<string, string
  *  `hud.position: overlay`). Each call is a "step": logged with the previous step's duration, and
  *  record-demo.sh saves one verify-frame per step. With --voice the caption is also read aloud and
  *  stays up until its clip has played. */
-export async function hud(page: Page, text: string): Promise<void> {
+export async function hud(page: Page, text: string, opts: { voice?: LineVoice } = {}): Promise<void> {
   if (text === lastCaption) return;
   await letCaptionBeRead(page); // never cut the previous caption short
   const synthAt = (Date.now() - t0) / 1000;
-  const voice = text ? await voiceFor(text) : null;
+  const voice = text ? await voiceFor(text, opts.voice) : null;
   if (Date.now() - t0 > synthAt * 1000 + 50) cutSince(synthAt); // synthesis time never shows in the video
   const now = Date.now();
   if (text) {
@@ -327,7 +333,8 @@ export async function hud(page: Page, text: string): Promise<void> {
   console.log(`[step +${(deltaMs / 1000).toFixed(1)}s] ${text}`);
   lastStepAt = now;
   lastCaption = text;
-  if (text) steps.push({ t: (now - t0) / 1000, text, say: spoken(text) }); // say: what the voice reads (revoice re-reads it)
+  // say + voice: what this line's voice reads and how — revoice reads it again the same way
+  if (text) steps.push({ t: (now - t0) / 1000, text, say: opts.voice === false ? '' : (opts.voice?.say ?? spoken(text)), ...(opts.voice !== undefined && { voice: opts.voice }) });
   await paint(page, text, voice?.file);
 }
 
@@ -547,8 +554,8 @@ export async function clearCallouts(page: Page): Promise<void> {
 /** Set a caption, then hold so the viewer can read it before the action runs. */
 /** Set a caption and pause the action for `holdMs`. The caption itself stays up at least its
  *  reading time (readMs) regardless — the next action may already start while it's being read. */
-export async function narrate(page: Page, text: string, holdMs = 1200): Promise<void> {
-  await hud(page, text);
+export async function narrate(page: Page, text: string, holdMs = 1200, opts: { voice?: LineVoice } = {}): Promise<void> {
+  await hud(page, text, opts);
   await page.waitForTimeout(holdMs);
 }
 
