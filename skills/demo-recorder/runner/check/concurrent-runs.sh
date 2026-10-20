@@ -5,10 +5,12 @@
 #   bash skills/demo-recorder/runner/check/concurrent-runs.sh
 set -euo pipefail
 REC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/record-demo.sh"
-export DEMO_HOME="${DEMO_HOME:-$(mktemp -d)}"
+SRV="" WORK="" SCRATCH=""
+[[ -n "${DEMO_HOME:-}" ]] || SCRATCH="$(mktemp -d)" # ours → removed at exit (it holds a Playwright install)
+trap '[[ -n "$SRV" ]] && kill "$SRV" 2>/dev/null; rm -rf "$WORK" "$SCRATCH"' EXIT
+export DEMO_HOME="${DEMO_HOME:-$SCRATCH}"
 WORK="$(mktemp -d)"
 PORT=$((20000 + RANDOM % 20000))
-trap 'kill $SRV 2>/dev/null; rm -rf "$WORK"' EXIT
 
 cat >"$WORK/index.html" <<'EOF'
 <!doctype html><body style="font:24px sans-serif;padding:40px"><h1>Concurrent take</h1>
