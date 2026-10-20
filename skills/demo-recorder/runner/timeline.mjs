@@ -3,6 +3,8 @@
 // - draws the caption bar ABOVE (hud.position top) or BELOW (bottom) the page, never over it: one PNG
 //   per caption rendered by Chromium, stacked onto the video for exactly that caption's time
 // - lays each caption's voice clip (recorded with --voice) at the caption's moment in the final cut
+// - writes <stem>-chapters.json: every caption, callout, fast-forward span and still/cut in FINAL-video
+//   seconds — for anything that plays the take (a player, the PR page, a preview inside another recording)
 // usage: node timeline.mjs <raw-dir> <video.webm> <out-stem> <speed> <config-json>  → prints "<final> <raw>" seconds
 import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -37,9 +39,11 @@ const segs = read('segments.json')
   .map((s) => ({ ...s, start: Math.max(0, s.start), end: Math.min(dur, s.end) }))
   .sort((a, b) => a.start - b.start);
 const parts = [];
+const kept = []; // the segments that made it into the cut
 let cursor = 0;
 for (const s of segs) {
   if (s.start < cursor || s.end <= s.start) continue;
+  kept.push(s);
   if (s.start > cursor) parts.push([cursor, s.start, speed]);
   parts.push([s.start, s.end, speed * s.factor]);
   cursor = s.end;
@@ -86,6 +90,21 @@ ffmpeg([...inputs, '-filter_complex', graph, ...maps, '-c:v', 'libx264', '-prese
 // ── verify artifacts: 3×3 contact sheet, and one frame per caption/callout at the moment it was meant to show ──
 ffmpegBg(['-i', `${stem}.mp4`, '-vf', `fps=9/${total},scale=560:-1,tile=3x3`, '-frames:v', '1', `${stem}-sheet.png`]);
 const steps = read('steps.json');
+
+// ── chapters: final-video seconds of every beat ──
+const sec = (t) => Number(out(t).toFixed(2));
+const chapters = [
+  ...steps.map((st) =>
+    st.text.startsWith('↳') ? { t: sec(st.t), kind: 'callout', text: st.text.slice(2) } : { t: sec(st.t), kind: 'caption', text: st.text }
+  ),
+  ...kept.map((s) =>
+    s.factor < 100
+      ? { t: sec(s.start), end: sec(s.end), kind: 'fastForward', text: captions.findLast((c) => c.t <= s.start)?.text ?? '' }
+      : { t: sec(s.start), kind: s.label ? 'still' : 'cut', text: s.label ?? '' }
+  ),
+].sort((a, b) => a.t - b.t);
+writeFileSync(`${stem}-chapters.json`, `[\n${chapters.map((c) => JSON.stringify(c)).join(',\n')}\n]\n`);
+
 if (steps.length) mkdirSync(`${stem}-steps`, { recursive: true });
 steps.forEach((st, i) => {
   const next = i + 1 < steps.length ? steps[i + 1].t : dur;

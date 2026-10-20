@@ -30,7 +30,7 @@ export { expect };
 // Fast-forward segments (seconds from video start), written for record-demo.sh to speed up in
 // post. Video starts with the page, so t0 is taken when the `page` fixture is handed over.
 let t0 = Date.now();
-const segments: { start: number; end: number; factor: number }[] = [];
+const segments: { start: number; end: number; factor: number; label?: string }[] = []; // label = the shot a cut is for
 const steps: { t: number; text: string; at?: number }[] = []; // caption/callout → one verify-frame each (at = frame time)
 const captions: { t: number; text: string; voice?: string }[] = []; // every caption change → the bar + voice track
 let shotCount = 0;
@@ -111,6 +111,7 @@ export const test = base.extend({
 const HUD_ID = 'demo-hud';
 const CURSOR_ID = 'demo-cursor';
 const CALLOUTS_ID = 'demo-callouts';
+let calloutGroups = 0;
 
 // Look & feel — `record-demo.sh config hud.position bottom` (persisted) or `demo.configure()` (per spec).
 type HudConfig = {
@@ -179,9 +180,9 @@ async function letCaptionBeRead(page: Page): Promise<void> {
 
 /** Cut [start, now] out of the final video. The caption on screen loses that time, so its
  *  reading-time clock is pushed back by the same amount. */
-function cutSince(start: number): void {
+function cutSince(start: number, label?: string): void {
   const end = (Date.now() - t0) / 1000;
-  segments.push({ start, end, factor: 1000 });
+  segments.push({ start, end, factor: 1000, ...(label && { label }) });
   captionShownAt += (end - start) * 1000;
 }
 
@@ -378,7 +379,8 @@ async function paint(page: Page, text: string, voice?: string): Promise<void> {
  *  ring around it. Pairs with the global caption: caption = what's happening, callout = look HERE.
  *  Holds `holdMs`, then clears (`keep: true` leaves it until `clearCallouts` / zoomOut / next
  *  `callout` with `replace`). Inside `withZoom`, call it in the action — it's drawn in zoomed
- *  coordinates. Shown in `shot()` stills unless `callout.inShots` is false. */
+ *  coordinates. Shown in `shot()` stills unless `callout.inShots` is false. While shown it follows
+ *  `target` when the page scrolls or reflows (output arriving, async lists) — see followTarget. */
 export async function callout(
   page: Page,
   target: Locator,
@@ -393,10 +395,11 @@ export async function callout(
   const now = (Date.now() - t0) / 1000;
   steps.push({ t: now, text: `↳ ${text}`, at: now + Math.min(holdMs, 3000) / 1000 * 0.6 }); // frame mid-hold
   console.log(`[callout] ${text}`);
+  const gid = String(++calloutGroups);
   await page.evaluate(PAGE_HELPERS).catch(() => {});
   await page
     .evaluate(
-      ({ id, hudId, r, text, color, ring, replace }) => {
+      ({ id, hudId, r, text, color, ring, replace, gid }) => {
         let layer = document.getElementById(id);
         if (!layer) {
           layer = document.createElement('div');
@@ -406,7 +409,8 @@ export async function callout(
         }
         if (replace) layer.innerHTML = '';
         const group = document.createElement('div');
-        group.style.cssText = 'position:absolute;inset:0;opacity:0;transition:opacity .3s ease';
+        group.dataset.demoGroup = gid;
+        group.style.cssText = 'position:absolute;inset:0;opacity:0;transition:opacity .3s ease,transform .1s linear';
         layer.appendChild(group);
 
         const bubble = document.createElement('div');
@@ -485,6 +489,7 @@ export async function callout(
 
         if (ring) {
           const o = document.createElement('div');
+          o.dataset.demoRing = '1';
           o.style.cssText = [
             'position:absolute',
             `left:${r.x - 6}px`,
@@ -499,11 +504,38 @@ export async function callout(
         }
         requestAnimationFrame(() => (group.style.opacity = '1'));
       },
-      { id: CALLOUTS_ID, hudId: HUD_ID, r: box, text, color: calloutCfg.color, ring, replace }
+      { id: CALLOUTS_ID, hudId: HUD_ID, r: box, text, color: calloutCfg.color, ring, replace, gid }
     )
     .catch(() => {});
+  void followTarget(page, target, box, gid);
   await page.waitForTimeout(holdMs);
   if (!keep) await clearCallouts(page);
+}
+
+/** Keep callout group `gid` glued to `target` while it's on screen: re-resolve the locator every
+ *  100ms and translate ring + arrow + bubble by how far the target moved. Re-resolving (not tracking
+ *  the element in-page) matters: a terminal's rows are fixed divs whose TEXT scrolls through them, so
+ *  "the row with X" becomes another element. Ends by itself once the group is gone (clearCallouts,
+ *  `replace`, zoomOut, navigation). ponytail: follows moves, not resizes — redraw if that's needed. */
+async function followTarget(page: Page, target: Locator, from: { x: number; y: number }, gid: string): Promise<void> {
+  let last = '';
+  while (!page.isClosed()) {
+    await new Promise((r) => setTimeout(r, 100));
+    const b = await target.boundingBox({ timeout: 500 }).catch(() => null);
+    const shift = b ? `translate(${b.x - from.x}px,${b.y - from.y}px)` : last; // target gone for a moment → stay put
+    const alive = await page
+      .evaluate(
+        ({ gid, shift }) => {
+          const g = document.querySelector<HTMLElement>(`[data-demo-group="${gid}"]`);
+          if (g && shift) g.style.transform = shift;
+          return !!g;
+        },
+        { gid, shift: shift === last ? '' : shift }
+      )
+      .catch(() => false);
+    if (!alive) return;
+    last = shift;
+  }
 }
 
 /** Remove all callouts. */
@@ -733,7 +765,7 @@ export async function shot(
           })
       )
       .catch(() => page.waitForTimeout(1200));
-    cutSince(start); // cut from the video
+    cutSince(start, name); // cut from the video
   }
   console.log(`[shot] ${file}`);
   return file;
@@ -942,6 +974,8 @@ export const demo = {
   actAndWait,
   fastForward,
   readMs,
+  /** Wait until the caption on screen has been read (and spoken) — e.g. before playing media whose sound must not overlap it. */
+  waitForCaption: letCaptionBeRead,
   spoken,
   shot,
   snapshot,

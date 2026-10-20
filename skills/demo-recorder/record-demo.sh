@@ -22,6 +22,7 @@
 #
 # Output: $DEMO_HOME/videos/<project>/<demo>-<ts>.mp4 + -shots/ (stills) + -steps/ (a frame per
 #         caption, to verify) + -sheet.png (3x3 contact sheet) + .webm (raw: no caption bar, no voice)
+#         + -chapters.json (every caption/callout/fast-forward/still in final-video seconds)
 
 set -euo pipefail
 
@@ -93,7 +94,7 @@ set -- ${ARGS[@]+"${ARGS[@]}"}
 
 case "$CMD" in
   ""|-h|--help)
-    sed -n 3,24p "$0"; exit 0 ;;
+    sed -n 3,25p "$0"; exit 0 ;;
 
   init)
     shift; sync_runner >/dev/null
@@ -343,7 +344,7 @@ mkdir -p "$DEST_DIR"
 cp "$WEBM" "$STEM.webm"
 
 if command -v ffmpeg >/dev/null; then
-  # caption bar + speed / cuts / fast-forward + voice → mp4 (h264/aac plays everywhere), sheet, step frames
+  # caption bar + speed / cuts / fast-forward + voice → mp4 (h264/aac plays everywhere), sheet, step frames, chapters
   DURS="$(node "$RUN_DIR/timeline.mjs" "$OUT_RAW" "$WEBM" "$STEM" "$SPEED" "$CONFIG")" || echo "✗ post-production failed (see above)" >&2
   read -r DUR RAW_DUR <<<"${DURS:-}"
 fi
@@ -360,6 +361,7 @@ else
 fi
 [[ -d "$STEM-shots" ]] && for f in "$STEM-shots"/*.png; do echo "📸 shot:  $(url_of "$f")"; done
 [[ -d "$STEM-steps" ]] && echo "🔎 steps: $(url_of "$STEM-steps") ($(ls "$STEM-steps" | wc -l | tr -d ' ') frames)"
+[[ -f "$STEM-chapters.json" ]] && echo "📑 chapters: $(url_of "$STEM-chapters.json") ($(grep -c '"kind"' "$STEM-chapters.json") entries, final-video seconds)"
 [[ $OPEN == 1 ]] && { open_file "$STEM.mp4" || open_file "$STEM.webm"; }
 
 [[ $STATUS -eq 0 ]] || echo "⚠ Spec exited $STATUS — the video may stop early. Check the log above."
