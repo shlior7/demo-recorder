@@ -43,7 +43,10 @@ def say(req):
         cfg_weight=pick("cfg", 1),
         temperature=pick("temperature", 2),
     )
-    torchaudio.save(req["out"], wav, model.sr)
+    # write-then-rename: a concurrent take voicing the same caption (same cache file) never reads half a wav
+    tmp = f"{req['out']}.{os.getpid()}.tmp.wav"
+    torchaudio.save(tmp, wav, model.sr)
+    os.replace(tmp, req["out"])
     return {"out": req["out"], "seconds": wav.shape[-1] / model.sr}
 
 

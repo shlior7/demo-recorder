@@ -23,6 +23,7 @@ $DEMO_HOME/
   projects/<project>/demos/*.json     demo manifests (or *.spec.ts) — edit and re-run any time
   auth/<name>.json                    saved logins (owner-only) — never print, copy or upload
   videos/<project>/<demo>-<ts>.mp4    output (+ -shots/ -steps/ -sheet.png .webm)
+  runs/<id>/                          one per take in progress (runner snapshot + raw output), removed when it ends
 <repo>/.demo-recorder/project.json    optional TEAM variant of project.json (committed, no `root`)
 ```
 

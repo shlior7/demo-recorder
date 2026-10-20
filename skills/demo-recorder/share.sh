@@ -68,7 +68,9 @@ SLUG="$(printf 'demo-%s-pr%s' "$(basename "$NWO")" "${PR:-x}" | tr 'A-Z' 'a-z' |
 
 declare -a URLS=()   # parallel to SHOTS
 POSTER_URL="" PAGE_URL=""
-mkdir -p "$DEMO_HOME/gh"
+# own scratch dir per share: two shares at once must not read each other's out.json / poster.png
+mkdir -p "$DEMO_HOME/gh"; GH="$(mktemp -d "$DEMO_HOME/gh/XXXXXX")"
+trap 'rm -rf "$GH"' EXIT
 
 # branch_push <file> <path-in-branch>… — one commit on the assets branch with all of them; sets BASE.
 branch_push() {
@@ -88,12 +90,12 @@ if [[ $VIDEO == attach ]]; then
     VIDEO_URL="https://github.com/user-attachments/assets/<video>"
     for f in ${SHOTS[@]+"${SHOTS[@]}"}; do URLS+=("https://github.com/user-attachments/assets/<$(basename "$f")>"); done
   else
-    cp "$SKILL_DIR/runner/gh-upload.spec.ts" "$DEMO_HOME/gh/"
-    OUT="$DEMO_HOME/gh/out.json"; rm -f "$OUT"
+    cp "$SKILL_DIR/runner/"{gh-upload.spec.ts,playwright.config.ts} "$GH/"
+    OUT="$GH/out.json"
     FILES="$(node -e 'console.log(JSON.stringify(process.argv.slice(1)))' "$MP4" ${SHOTS[@]+"${SHOTS[@]}"})"
-    (cd "$DEMO_HOME" && DEMO_NO_VIDEO=1 DEMO_TEST_DIR="$DEMO_HOME/gh" DEMO_OUTPUT_DIR="$DEMO_HOME/gh/results" \
+    (cd "$DEMO_HOME" && DEMO_NO_VIDEO=1 DEMO_TEST_DIR="$GH" DEMO_OUTPUT_DIR="$GH/results" \
       DEMO_STORAGE_STATE="$GH_AUTH" GH_PR_URL="https://github.com/$NWO/pull/$PR" GH_UPLOAD_FILES="$FILES" GH_UPLOAD_OUT="$OUT" \
-      npx playwright test gh-upload.spec.ts --config playwright.config.ts --reporter=line) >&2 \
+      npx playwright test gh-upload.spec.ts --config "$GH/playwright.config.ts" --reporter=line) >&2 \
       || { echo "✗ GitHub upload failed (session expired? re-run: record-demo.sh login https://github.com/login github)" >&2; exit 1; }
     get() { node -e 'console.log(require(process.argv[1])[process.argv[2]] ?? "")' "$OUT" "$1"; }
     VIDEO_URL="$(get "$(basename "$MP4")")"
@@ -107,10 +109,10 @@ else
     PAGE="$DEMO_HOME/pages/$SLUG"
     PAGE_URL="$(tpl "$(cfg share.page.url)" "$PAGE" "$SLUG" "$NWO" "$PR")"
     TAKE_ID="$(date -u +%Y%m%d-%H%M%S)"
-    cp "$SKILL_DIR/runner/poster.mjs" "$DEMO_HOME/gh/"
-    ffmpeg -loglevel error -y -ss "$(( ${DUR:-10} * 45 / 100 ))" -i "$MP4" -frames:v 1 "$DEMO_HOME/gh/frame.png"
-    (cd "$DEMO_HOME" && node gh/poster.mjs gh/frame.png gh/poster.png "Play the demo · ${DUR:-?}s")
-    PUSH+=("$DEMO_HOME/gh/poster.png" "$PREFIX/poster.png")
+    cp "$SKILL_DIR/runner/poster.mjs" "$GH/"
+    ffmpeg -loglevel error -y -ss "$(( ${DUR:-10} * 45 / 100 ))" -i "$MP4" -frames:v 1 "$GH/frame.png"
+    (cd "$DEMO_HOME" && node "$GH/poster.mjs" "$GH/frame.png" "$GH/poster.png" "Play the demo · ${DUR:-?}s")
+    PUSH+=("$GH/poster.png" "$PREFIX/poster.png")
     if [[ $DRY == 0 ]]; then
       # another machine may have started this PR's page — pull it (optional command) so its tabs survive
       PULL="$(cfg share.page.pull)"

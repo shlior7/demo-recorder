@@ -25,14 +25,15 @@ set -euo pipefail
 
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_HOME="${DEMO_HOME:-$HOME/.demo-recorder}"
-RUNNER_FILES=(demo-recorder.ts playwright.config.ts tsconfig.json timeline.mjs config.mjs config.defaults.json login.mjs project.mjs voice.py)
+RUNNER_FILES=(demo-recorder.ts playwright.config.ts tsconfig.json timeline.mjs voice.py)
 VOICE_PY="$DEMO_HOME/voice/venv/bin/python"
 
+# Shared install only (node_modules, Chromium). A take never runs files from $DEMO_HOME itself: it
+# snapshots the runner into its own $DEMO_HOME/runs/<id>/ (see below), so a concurrent run of another
+# plugin version can't swap them mid-take. login.mjs is the one file kept here (it needs node_modules).
 sync_runner() {
-  mkdir -p "$DEMO_HOME"/{projects,auth,videos,probe,manifest}
-  for f in "${RUNNER_FILES[@]}"; do cp "$SKILL_DIR/runner/$f" "$DEMO_HOME/"; done
-  cp "$SKILL_DIR/runner/probe.spec.ts" "$DEMO_HOME/probe/"
-  cp "$SKILL_DIR/runner/manifest.spec.ts" "$DEMO_HOME/manifest/"
+  mkdir -p "$DEMO_HOME"/{projects,auth,videos,probe,runs}
+  cp "$SKILL_DIR/runner/login.mjs" "$DEMO_HOME/"
   if ! cmp -s "$SKILL_DIR/runner/package.json" "$DEMO_HOME/package.json" || [[ ! -d "$DEMO_HOME/node_modules/@playwright/test" ]]; then
     cp "$SKILL_DIR/runner/package.json" "$DEMO_HOME/"
     echo "▶ Installing Playwright into $DEMO_HOME …" >&2
@@ -50,7 +51,7 @@ ensure_voice() {
   # a private mirror may lack some wheels → fall back to public PyPI
   "$VOICE_PY" -m pip install -q chatterbox-tts || "$VOICE_PY" -m pip install -q --index-url https://pypi.org/simple chatterbox-tts
 }
-config_json() { node "$DEMO_HOME/config.mjs" "$DEMO_HOME/config.defaults.json" "$DEMO_HOME/config.json" "$@"; }
+config_json() { node "$SKILL_DIR/runner/config.mjs" "$SKILL_DIR/runner/config.defaults.json" "$DEMO_HOME/config.json" "$@"; }
 open_file() { if command -v open >/dev/null; then open "$1"; elif command -v xdg-open >/dev/null; then xdg-open "$1" >/dev/null 2>&1; fi; }
 url_of() { node -e 'console.log(require("url").pathToFileURL(process.argv[1]).href)' "$1"; }
 
@@ -141,7 +142,7 @@ case "$CMD" in
     shift; sync_runner >/dev/null; ensure_voice
     OUT="$DEMO_HOME/voice/sample.wav"
     echo "▶ Reading it with voice = $(config_json voice | tr -d '\n ')  (the first run downloads the model)"
-    DEMO_VOICE_OPTS="$(config_json voice)" "$VOICE_PY" "$DEMO_HOME/voice.py" --say "${1:-Ask the chat for a better description}" "$OUT" >/dev/null 2>&1
+    DEMO_VOICE_OPTS="$(config_json voice)" "$VOICE_PY" "$SKILL_DIR/runner/voice.py" --say "${1:-Ask the chat for a better description}" "$OUT" >/dev/null 2>&1
     echo "🔊 $(url_of "$OUT")"
     [[ -t 1 ]] && command -v afplay >/dev/null && afplay "$OUT"
     exit 0 ;;
@@ -179,7 +180,7 @@ esac
 
 # ---------------------------------------------------------------- record / probe
 PROBE=0
-if [[ "$1" == probe ]]; then PROBE=1; SPEC="$DEMO_HOME/probe/probe.spec.ts"
+if [[ "$1" == probe ]]; then PROBE=1; SPEC=""
 else SPEC="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"; fi
 shift
 URL="" AUTH="" SPEED=1 HEADED=() OPEN=0 VOICE=""
@@ -219,14 +220,23 @@ CONFIG="$(config_json)"
 [[ -n "$VOICE" ]] || VOICE="$([[ "$(config_json voice.enabled)" == true ]] && echo 1 || echo 0)"
 if [[ $VOICE == 1 && $PROBE == 0 ]]; then ensure_voice; else VOICE=0; fi
 
+# Each take gets its own dir: a snapshot of the runner + the raw output (out/). Never shared, never
+# reused, removed on exit — so two takes at once (two sessions, two plugin versions) can't clobber
+# each other. Playwright resolves @playwright/test by walking up to $DEMO_HOME/node_modules.
+RUN_DIR="$(mktemp -d "$DEMO_HOME/runs/XXXXXX")"
+trap 'rm -rf "$RUN_DIR"' EXIT
+mkdir -p "$RUN_DIR"/{manifest,probe}
+for f in "${RUNNER_FILES[@]}"; do cp "$SKILL_DIR/runner/$f" "$RUN_DIR/"; done
+cp "$SKILL_DIR/runner/manifest.spec.ts" "$RUN_DIR/manifest/"
+cp "$SKILL_DIR/runner/probe.spec.ts" "$RUN_DIR/probe/"
+OUT_RAW="$RUN_DIR/out"
+
 RUN_SPEC="$SPEC" MANIFEST=""
+[[ $PROBE == 1 ]] && RUN_SPEC="$RUN_DIR/probe/probe.spec.ts"
 if [[ "$SPEC" == *.json ]]; then
   node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$SPEC" || { echo "✗ $SPEC is not valid JSON" >&2; exit 1; }
-  MANIFEST="$SPEC"; RUN_SPEC="$DEMO_HOME/manifest/manifest.spec.ts"
+  MANIFEST="$SPEC"; RUN_SPEC="$RUN_DIR/manifest/manifest.spec.ts"
 fi
-
-OUT_RAW="$DEMO_HOME/test-results"
-rm -rf "$OUT_RAW"
 
 [[ $PROBE == 1 ]] || echo "▶ Recording $SPEC against $URL (project: $PNAME) …"
 set +e
@@ -234,11 +244,11 @@ set +e
   DEMO_PROBE_SHOT="$DEMO_HOME/probe/probe.png" DEMO_PROBE_DIR="$DEMO_HOME/probe" \
   DEMO_SEGMENTS_FILE="$OUT_RAW/segments.json" DEMO_STEPS_FILE="$OUT_RAW/steps.json" DEMO_CAPTIONS_FILE="$OUT_RAW/captions.json" \
   DEMO_SHOTS_DIR="$OUT_RAW/shots" DEMO_CONFIG="$CONFIG" DEMO_VOICE="${VOICE/0/}" DEMO_VOICE_PY="$VOICE_PY" \
-  DEMO_VOICE_SCRIPT="$DEMO_HOME/voice.py" DEMO_VOICE_CACHE="$DEMO_HOME/voice/cache" \
+  DEMO_VOICE_SCRIPT="$RUN_DIR/voice.py" DEMO_VOICE_CACHE="$DEMO_HOME/voice/cache" \
   DEMO_PROJECT="$(pget config)" DEMO_MANIFEST="$MANIFEST" \
-  DEMO_TEST_DIR="$(dirname "$RUN_SPEC")" DEMO_OUTPUT_DIR="$OUT_RAW" DEMO_TSCONFIG="$DEMO_HOME/tsconfig.json" \
+  DEMO_TEST_DIR="$(dirname "$RUN_SPEC")" DEMO_OUTPUT_DIR="$OUT_RAW" DEMO_TSCONFIG="$RUN_DIR/tsconfig.json" \
   DEMO_SPEED="$SPEED" DEMO_BASE_URL="$URL" DEMO_STORAGE_STATE="$AUTH" DEMO_VIEWPORT="${VIEWPORT:-1680x1050}" DEMO_COLOR_SCHEME="${COLOR:-light}" \
-  npx playwright test "$(basename "$RUN_SPEC")" --config playwright.config.ts ${HEADED[@]+"${HEADED[@]}"})
+  npx playwright test "$(basename "$RUN_SPEC")" --config "$RUN_DIR/playwright.config.ts" ${HEADED[@]+"${HEADED[@]}"})
 STATUS=$?
 set -e
 if [[ $PROBE == 1 ]]; then echo "✓ Screenshot: $DEMO_HOME/probe/probe.png"; exit $STATUS; fi
@@ -254,7 +264,7 @@ cp "$WEBM" "$STEM.webm"
 
 if command -v ffmpeg >/dev/null; then
   # caption bar + speed / cuts / fast-forward + voice → mp4 (h264/aac plays everywhere), sheet, step frames
-  DURS="$(node "$DEMO_HOME/timeline.mjs" "$OUT_RAW" "$WEBM" "$STEM" "$SPEED" "$CONFIG")" || echo "✗ post-production failed (see above)" >&2
+  DURS="$(node "$RUN_DIR/timeline.mjs" "$OUT_RAW" "$WEBM" "$STEM" "$SPEED" "$CONFIG")" || echo "✗ post-production failed (see above)" >&2
   read -r DUR RAW_DUR <<<"${DURS:-}"
 fi
 [[ -d "$OUT_RAW/shots" ]] && cp -R "$OUT_RAW/shots" "$STEM-shots"
