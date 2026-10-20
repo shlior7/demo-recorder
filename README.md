@@ -4,15 +4,18 @@
 
 A [Claude Code](https://claude.com/claude-code) plugin (also a plain CLI) that drives a real flow in
 your running app with Playwright and produces a video that looks hand-made: a human-like cursor,
-captions, arrow callouts on the exact change, camera zoom on the key moments, clean screenshots of
-the components that changed, and dead time (spinners, AI answers) fast-forwarded. Then it can post
+a caption bar above the app with the current step, arrow callouts on the exact change, camera zoom
+on the key moments, clean screenshots of the components that changed, dead time (spinners, AI
+answers) fast-forwarded, and — optionally — a realistic voice reading each step. Then it can post
 the video and screenshots to the pull request.
 
-![A recorded frame: caption, zoom, callout with arrow and ring](docs/preview.png)
+![A recorded frame: caption bar above the app, zoom, callout with arrow and ring](docs/preview.png)
 
 - **Zero footprint in your repo** — Playwright lives in `~/.demo-recorder`; nothing to install in the app.
 - **Demos are data** — a JSON manifest of steps you can edit and re-run (or a Playwright spec when you need logic).
 - **Per-project settings** — URL, start commands, auth, never-click rules — in one `project.json`.
+- **Captions never cover the app** — the step title sits in a fixed bar above the page, in the same spot all video long.
+- **Optional voice-over** — `--voice` reads each step title aloud with [Chatterbox](https://github.com/resemble-ai/chatterbox) TTS, upbeat and natural; local, free, cached.
 - **Verified, not hoped** — every run emits a frame per caption and a contact sheet to check before sharing.
 - **PR-ready** — inline video in the PR comment, screenshots in a grid, or a per-PR page with one tab per recording.
 
@@ -42,6 +45,7 @@ ln -s ~/demo-recorder/skills/demo-recorder ~/.claude/skills/demo-recorder
 - `ffmpeg` (mp4 output, fast-forward, contact sheets) — `brew install ffmpeg` / `apt install ffmpeg`
 - `git`, and the [`gh` CLI](https://cli.github.com) logged in — only for posting to PRs
 - macOS or Linux (importing an existing browser login with `--from` is macOS-only)
+- Voice only: Python 3.10+ — `--voice` installs Chatterbox (PyTorch + ~3 GB of model weights) into `~/.demo-recorder/voice` on first use; Apple Silicon (MPS) or a CUDA GPU makes it fast
 
 ## Try it in 1 minute
 
@@ -119,7 +123,7 @@ spec instead: `import { test, demo } from 'demo-recorder'` — see [`examples/to
 ## Output
 
 ```
-~/.demo-recorder/videos/<project>/<demo>-<timestamp>.mp4     H.264, plays everywhere
+~/.demo-recorder/videos/<project>/<demo>-<timestamp>.mp4     H.264 (+ AAC voice), plays everywhere
                                   …-shots/*.png             clean stills for the PR / ticket
                                   …-steps/*.png             one frame per caption/callout — check these
                                   …-sheet.png               3×3 contact sheet
@@ -166,12 +170,29 @@ on another machine are kept. Recordings of private work should go to a host with
 
 | key | values |
 |---|---|
-| `hud.position` | `auto` (picks top/bottom per caption to avoid covering UI) · `top` · `bottom` · `off` |
+| `hud.position` | `top` (a bar above the page, default) · `bottom` (a bar below it) · `overlay` (floating on the page) · `off` |
 | `hud.size`, `hud.theme` | `sm`/`md`/`lg`, `dark`/`light` |
+| `hud.wpm`, `hud.minMs` | reading speed and floor for how long every caption/callout stays up |
+| `voice.enabled` | `true` = always narrate (same as passing `--voice`; `--no-voice` overrides) |
+| `voice.exaggeration`, `voice.cfg`, `voice.temperature` | delivery: `0.7` / `0.3` / `0.8` = upbeat and lively; `0.5` / `0.5` = calm and neutral |
+| `voice.ref` | path to a 10–30 s `.wav` of a voice to clone (empty = Chatterbox's built-in voice) |
 | `callout.color`, `callout.ring`, `callout.inShots` | colour, ring around the target, keep callouts in stills |
 | `share.pr`, `share.jira` | `always` · `ask` · `never` |
 | `share.video` | `attach` · `page` · `link` |
 | `share.page.deploy` / `.url` / `.pull`, `share.assetsBranch` | see above |
+
+## Voice-over
+
+```bash
+$R/record-demo.sh voice "Ask the chat for a better description"   # one-time install + a sample with your settings
+$R/record-demo.sh <demo.json> --voice                              # every step title read aloud
+```
+
+Each caption is spoken once it appears, and stays on screen until its line has finished — so the
+video paces itself to the voice. Clips are cached by text and settings (re-takes only synthesise
+what changed), and the seconds spent synthesising are cut from the video. Symbols are spoken
+sensibly (`·` and `—` become pauses, `→` "to"). Chatterbox runs locally; its output carries
+Resemble AI's inaudible watermark.
 
 ## Security notes
 

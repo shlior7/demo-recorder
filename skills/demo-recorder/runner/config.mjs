@@ -22,7 +22,7 @@ const merge = (a, b) =>
 const get = (o, path) => path.split('.').reduce((v, k) => v?.[k], o);
 
 const ALLOWED = {
-  'hud.position': ['top', 'bottom', 'auto', 'off'],
+  'hud.position': ['top', 'bottom', 'overlay', 'off'],
   'hud.size': ['sm', 'md', 'lg'],
   'hud.theme': ['dark', 'light'],
   'share.pr': ['always', 'ask', 'never', 'unset'],
@@ -30,6 +30,7 @@ const ALLOWED = {
   'share.video': ['attach', 'page', 'link'],
   'callout.ring': ['true', 'false'],
   'callout.inShots': ['true', 'false'],
+  'voice.enabled': ['true', 'false'],
 };
 
 const defaults = read(defaultsFile);

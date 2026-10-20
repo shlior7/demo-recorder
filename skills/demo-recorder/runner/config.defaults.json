@@ -1,6 +1,6 @@
 {
   "hud": {
-    "position": "auto",
+    "position": "top",
     "size": "md",
     "theme": "dark",
     "wpm": 180,
@@ -10,6 +10,13 @@
     "color": "#f43f5e",
     "ring": true,
     "inShots": true
+  },
+  "voice": {
+    "enabled": false,
+    "exaggeration": 0.7,
+    "cfg": 0.3,
+    "temperature": 0.8,
+    "ref": ""
   },
   "share": {
     "pr": "unset",

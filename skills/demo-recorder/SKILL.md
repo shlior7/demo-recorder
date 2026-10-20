@@ -5,9 +5,10 @@ description: Record a polished, narrated demo video (human-like cursor, captions
 
 # Demo Recorder
 
-Drive a real flow in a running web app with Playwright, overlay a human-looking cursor, captions,
-callouts and camera zoom, and get back an `.mp4`, clean screenshots of the key components, and
-frames to verify it — then post it to the PR. Works on any web app with a URL. Playwright lives in a
+Drive a real flow in a running web app with Playwright, overlay a human-looking cursor, callouts
+and camera zoom, put each step title in a caption bar above the page (optionally read aloud), and
+get back an `.mp4`, clean screenshots of the key components, and frames to verify it — then post it
+to the PR. Works on any web app with a URL. Playwright lives in a
 separate runner home (`$DEMO_HOME`, default `~/.demo-recorder`), so the target repo gets **no new
 dependencies and no new files** (unless the team opts into a committed `.demo-recorder/` folder).
 
@@ -167,11 +168,15 @@ fakeLocalStorage/configure/loc`.
 - Open with the pitch (what's new + why it matters, ≤ 10 words); close with the outcome.
 - Every caption/callout stays up at least its reading time (`hud.wpm`, `hud.minMs`, scaled by
   `--speed`) — so `hold` is only how long the *action* pauses; you can't make text flash by.
+- Captions sit in a fixed bar **above** the page (`hud.position top`, default; `bottom`, `overlay`,
+  `off`), drawn in post — they never cover the app or jump around, and aren't in `shot` stills.
+- With `--voice` each caption is read aloud (Chatterbox) and stays up until spoken — write captions
+  that sound right said out loud: plain words, no abbreviations or symbols that need reading.
 
 Baked-in lessons (don't relearn):
 - Always move through the wrappers — a raw `locator.click()` desyncs the cursor glide.
-- Overlays live on `<html>`, not `<body>` (framework roots reconcile body children away); `start`
-  after load; re-`start` after a full navigation.
+- In-page overlays (cursor, callouts) live on `<html>`, not `<body>` (framework roots reconcile body
+  children away); `start` after load; re-`start` after a full navigation.
 - **Two levels of text**: captions tell the story; **callouts** point at the exact change (≤ 6 words,
   placed on the free side with an arrow + ring). Inside `zoom`, put the callout in `do`; a callout
   whose target the zoom pushes off-screen belongs after the zoom.
@@ -181,22 +186,28 @@ Baked-in lessons (don't relearn):
 - Waits > ~2 s go in `waitFor`/`actAndWait`/`fastForward` → played 8× faster with a ⏩ caption. Never
   pad with fixed sleeps to "wait for" a backend. `failOn` makes waits die in seconds on error UI.
 - `type` replaces existing text and caps typing at ~3.5 s; `tap` dispatches for animated elements.
-- `shot` = clean still (no cursor/caption; callouts kept unless `callout.inShots` is false), cropped
+- `shot` = clean still (no cursor/caption bar; callouts kept unless `callout.inShots` is false), cropped
   to the target + padding, grown to include callout bubbles; its capture moment is cut from the video.
 - One-time popups → `localStorage` prefixes (find keys in the app source or DevTools), not clicks.
 
 ## 6. Record
 
 ```bash
-"$S/record-demo.sh" $DEMO_HOME/projects/<p>/demos/<flow>.json [--speed 1.2] [--headed] [--open]
+"$S/record-demo.sh" $DEMO_HOME/projects/<p>/demos/<flow>.json [--speed 1.2] [--voice] [--headed] [--open]
 ```
 
-URL/auth/viewport come from flags > manifest > project.json. The video is saved even when a step
+URL/auth/viewport come from flags > manifest > project.json. `--voice` (or `config voice.enabled
+true`) narrates every caption with Chatterbox TTS: first use installs it into `$DEMO_HOME/voice`
+(several GB, minutes — tell the user before the first voiced take); `record-demo.sh voice "text"`
+auditions the current `voice.*` settings (`exaggeration` 0.7 / `cfg` 0.3 = upbeat; `ref` = a .wav to
+clone). The video is saved even when a step
 fails (exit code still reflects it). `--open` on the take you hand back, not while iterating.
 
 ## 7. Verify — always, before handing back
 
-1. `-sheet.png` (3×3 across the video): no login page, captions readable, results rendered.
+1. `-sheet.png` (3×3 across the video): no login page, caption bar readable, results rendered.
+   Voiced take: `ffmpeg -i <mp4> -af silencedetect=n=-40dB:d=0.4 -f null -` — speech starts at each
+   caption and no line is cut off by the next.
 2. `-steps/` — one frame per caption/callout at the moment it was meant to show. Read them.
 3. Every `-shots/` still — they ship to the PR.
 

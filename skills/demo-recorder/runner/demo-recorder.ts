@@ -19,8 +19,11 @@
  */
 
 import { test as base, expect, type Locator, type Page } from '@playwright/test';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createInterface } from 'node:readline';
 
 export { expect };
 
@@ -29,6 +32,7 @@ export { expect };
 let t0 = Date.now();
 const segments: { start: number; end: number; factor: number }[] = [];
 const steps: { t: number; text: string; at?: number }[] = []; // caption/callout → one verify-frame each (at = frame time)
+const captions: { t: number; text: string; voice?: string }[] = []; // every caption change → the bar + voice track
 let shotCount = 0;
 let forbidden: RegExp[] = [];
 let failWatch: Locator[] = [];
@@ -79,6 +83,7 @@ export const test = base.extend({
     t0 = Date.now();
     segments.length = 0;
     steps.length = 0;
+    captions.length = 0;
     lastCaption = '';
     captionNeedMs = 0;
     captionCount = 0;
@@ -90,6 +95,11 @@ export const test = base.extend({
     if (project.failOn?.length) failOn(...project.failOn.map((l: Json) => loc(page, l)));
     if (project.localStorage && Object.keys(project.localStorage).length) await fakeLocalStorage(page, project.localStorage);
     await use(page);
+    await letCaptionBeRead(page).catch(() => {}); // the last caption (and its voice) gets its full time on screen
+    tts?.proc.kill();
+    tts = null;
+    // the bar is drawn in post — hand it the look this spec ended up with (project/manifest/configure overrides)
+    if (process.env.DEMO_CAPTIONS_FILE) writeFileSync(process.env.DEMO_CAPTIONS_FILE, JSON.stringify({ hud: hudCfg, accent: calloutCfg.color, captions }));
     if (process.env.DEMO_SEGMENTS_FILE) writeFileSync(process.env.DEMO_SEGMENTS_FILE, JSON.stringify(segments));
     if (process.env.DEMO_STEPS_FILE) writeFileSync(process.env.DEMO_STEPS_FILE, JSON.stringify(steps));
     const minutes = (Date.now() - t0) / 60_000;
@@ -104,7 +114,7 @@ const CALLOUTS_ID = 'demo-callouts';
 
 // Look & feel — `record-demo.sh config hud.position bottom` (persisted) or `demo.configure()` (per spec).
 type HudConfig = {
-  position: 'top' | 'bottom' | 'auto' | 'off';
+  position: 'top' | 'bottom' | 'overlay' | 'off'; // top/bottom = a bar above/below the page (added in post), overlay = on the page
   size: 'sm' | 'md' | 'lg';
   theme: 'dark' | 'light';
   wpm: number; // reading speed for the minimum on-screen time of captions/callouts
@@ -118,7 +128,7 @@ const userCfg = (() => {
     return {};
   }
 })();
-let hudCfg: HudConfig = { position: 'auto', size: 'md', theme: 'dark', wpm: 180, minMs: 1500, ...userCfg.hud };
+let hudCfg: HudConfig = { position: 'top', size: 'md', theme: 'dark', wpm: 180, minMs: 1500, ...userCfg.hud };
 let calloutCfg: CalloutConfig = { color: '#f43f5e', ring: true, inShots: true, ...userCfg.callout };
 
 /** Per-spec override of the persisted look, e.g. `demo.configure({ hud: { position: 'bottom' } })`. */
@@ -126,9 +136,6 @@ export function configure(o: { hud?: Partial<HudConfig>; callout?: Partial<Callo
   hudCfg = { ...hudCfg, ...o.hud };
   calloutCfg = { ...calloutCfg, ...o.callout };
 }
-
-// Where the action is about to happen (last moveTo target) — auto HUD placement avoids covering it.
-let focusBox: { x: number; y: number; width: number; height: number } | null = null;
 
 // In-page helper: rects of UI a caption must not cover. Re-installed per call (navigation wipes it).
 const PAGE_HELPERS = `window.__demoImportant = () => {
@@ -168,6 +175,57 @@ export function readMs(text: string): number {
 async function letCaptionBeRead(page: Page): Promise<void> {
   const left = captionNeedMs - (Date.now() - captionShownAt);
   if (lastCaption && left > 0) await page.waitForTimeout(left);
+}
+
+/** Cut [start, now] out of the final video. The caption on screen loses that time, so its
+ *  reading-time clock is pushed back by the same amount. */
+function cutSince(start: number): void {
+  const end = (Date.now() - t0) / 1000;
+  segments.push({ start, end, factor: 1000 });
+  captionShownAt += (end - start) * 1000;
+}
+
+// ── Voice (record-demo.sh --voice): each caption read aloud by Chatterbox TTS ──
+// Clips are cached by text + voice settings, so a re-take only synthesises captions that changed; the
+// seconds spent synthesising are cut from the video. The caption stays up until its clip has played.
+const VOICE = process.env.DEMO_VOICE ? { exaggeration: 0.7, cfg: 0.3, temperature: 0.8, ref: '', ...userCfg.voice } : null;
+let tts: { proc: ChildProcessWithoutNullStreams; replies: AsyncIterator<string> } | null = null;
+
+/** Caption → what the voice should say: symbols read out or dropped, ends on "!" for an upbeat read. */
+export function spoken(text: string): string {
+  const t = text
+    .replace(/[⏩✓✔]/gu, '')
+    .replace(/\s*[·—–|]\s*/g, ', ')
+    .replace(/\s*→\s*/g, ' to ')
+    .replace(/#(?=\d)/g, '')
+    .replace(/[\s,]+$/, '')
+    .trim();
+  return t && !/[.!?…]$/.test(t) ? `${t}!` : t;
+}
+
+async function voiceFor(text: string): Promise<{ file: string; ms: number } | null> {
+  const say = spoken(text);
+  if (!VOICE || !say) return null;
+  const dir = process.env.DEMO_VOICE_CACHE!;
+  const file = join(dir, `${createHash('sha1').update(JSON.stringify({ say, ...VOICE })).digest('hex').slice(0, 16)}.wav`);
+  if (existsSync(`${file}.json`)) return { file, ms: JSON.parse(readFileSync(`${file}.json`, 'utf8')).ms };
+  mkdirSync(dir, { recursive: true });
+  if (!tts) {
+    console.log('[voice] loading Chatterbox…');
+    const proc = spawn(process.env.DEMO_VOICE_PY!, [process.env.DEMO_VOICE_SCRIPT!], { stdio: ['pipe', 'pipe', 'pipe'] });
+    proc.stderr.on('data', (d) => /error|Traceback/i.test(String(d)) && process.stderr.write(d)); // keep progress bars out of the log
+    tts = { proc, replies: createInterface({ input: proc.stdout })[Symbol.asyncIterator]() };
+  }
+  tts.proc.stdin.write(`${JSON.stringify({ ...VOICE, text: say, out: file })}\n`);
+  const { value, done } = await tts.replies.next();
+  const r = done ? { error: 'voice worker exited' } : JSON.parse(value);
+  if (r.error) {
+    console.warn(`[voice] "${say}": ${r.error}`);
+    return null;
+  }
+  const ms = Math.round(r.seconds * 1000);
+  writeFileSync(`${file}.json`, JSON.stringify({ ms, say }));
+  return { file, ms };
 }
 
 /** Reset the cursor tracker. Call at the top of every spec. */
@@ -243,12 +301,16 @@ export async function fakeLocalStorage(page: Page, values: Record<string, string
   }, values);
 }
 
-/** Inject/update a top-center caption banner the video captures. Idempotent; survives client-side
- *  navigation and is re-created after a full page load. Each call is a "step": logged with the
- *  previous step's duration, and record-demo.sh saves one verify-frame per step. */
+/** Show a caption — the step title in the bar above the page (or on the page with
+ *  `hud.position: overlay`). Each call is a "step": logged with the previous step's duration, and
+ *  record-demo.sh saves one verify-frame per step. With --voice the caption is also read aloud and
+ *  stays up until its clip has played. */
 export async function hud(page: Page, text: string): Promise<void> {
   if (text === lastCaption) return;
   await letCaptionBeRead(page); // never cut the previous caption short
+  const synthAt = (Date.now() - t0) / 1000;
+  const voice = text ? await voiceFor(text) : null;
+  if (Date.now() - t0 > synthAt * 1000 + 50) cutSince(synthAt); // synthesis time never shows in the video
   const now = Date.now();
   if (text) {
     captionCount++;
@@ -256,22 +318,23 @@ export async function hud(page: Page, text: string): Promise<void> {
     if (words > 12) console.warn(`[caption-lint] ${words} words — aim for ≤ 8, one idea; move detail into a callout: "${text}"`);
   }
   captionShownAt = now;
-  captionNeedMs = text ? readMs(text) : 0;
+  captionNeedMs = text ? Math.max(readMs(text), voice ? Math.round((voice.ms + 400) * SPEED) : 0) : 0;
   const deltaMs = lastStepAt === null ? 0 : now - lastStepAt;
   console.log(`[step +${(deltaMs / 1000).toFixed(1)}s] ${text}`);
   lastStepAt = now;
   lastCaption = text;
   if (text) steps.push({ t: (now - t0) / 1000, text });
-  await paint(page, text);
+  await paint(page, text, voice?.file);
 }
 
-// Caption DOM only — no step log/timing (used for transient tweaks like the ⏩ marker).
-async function paint(page: Page, text: string): Promise<void> {
-  if (hudCfg.position === 'off') return;
-  await page.evaluate(PAGE_HELPERS).catch(() => {});
+// Caption only — no step log/timing (used for transient tweaks like the ⏩ marker). Logs the change
+// for the bar/voice track; draws it on the page only in overlay mode.
+async function paint(page: Page, text: string, voice?: string): Promise<void> {
+  captions.push({ t: (Date.now() - t0) / 1000, text, ...(voice && { voice }) });
+  if (hudCfg.position !== 'overlay') return;
   await page
     .evaluate(
-      ({ id, t, cfg, focus }) => {
+      ({ id, t, cfg }) => {
         const SIZES = { sm: [14, '10px 18px', 10], md: [17, '14px 26px', 14], lg: [22, '18px 32px', 16] } as const;
         const [font, pad, radius] = SIZES[cfg.size] ?? SIZES.md;
         const light = cfg.theme === 'light';
@@ -283,6 +346,7 @@ async function paint(page: Page, text: string): Promise<void> {
         }
         el.style.cssText = [
           'position:fixed',
+          'top:28px',
           'left:50%',
           'transform:translateX(-50%)',
           'z-index:2147483647',
@@ -297,31 +361,12 @@ async function paint(page: Page, text: string): Promise<void> {
           'max-width:72vw',
           'text-align:center',
           'pointer-events:none',
-          'transition:opacity .25s ease, top .35s ease, bottom .35s ease',
+          'transition:opacity .25s ease',
           `opacity:${t ? 1 : 0}`,
         ].join(';');
         el.textContent = t;
-        let place = cfg.position;
-        if (place === 'auto') {
-          // Score top vs bottom band by how much important UI (and the next click target) it covers.
-          const w = el.offsetWidth;
-          const h = el.offsetHeight;
-          const x = (innerWidth - w) / 2;
-          const important = (window as any).__demoImportant() as DOMRect[];
-          const overlap = (window as any).__demoOverlap;
-          const score = (y: number) =>
-            important.reduce((n, r) => n + overlap({ x, y, w, h }, r), 0) +
-            (focus ? overlap({ x, y, w, h }, focus) * 50 : 0);
-          // hysteresis: stay where the previous caption was unless the other spot is clearly better
-          const prev = (window as any).__demoHudPlace || 'top';
-          const [here, there] = prev === 'top' ? [score(20), score(innerHeight - h - 28)] : [score(innerHeight - h - 28), score(20)];
-          place = there < here * 0.5 ? (prev === 'top' ? 'bottom' : 'top') : prev;
-          (window as any).__demoHudPlace = place;
-        }
-        el.style.top = place === 'top' ? (cfg.position === 'auto' ? '20px' : '28px') : '';
-        el.style.bottom = place === 'bottom' ? '28px' : '';
       },
-      { id: HUD_ID, t: text, cfg: hudCfg, focus: focusBox }
+      { id: HUD_ID, t: text, cfg: hudCfg }
     )
     .catch(() => {});
 }
@@ -502,7 +547,6 @@ export async function moveTo(page: Page, locator: Locator): Promise<void> {
   await page.waitForTimeout(280); // let smooth-scroll settle before reading coordinates
   const box = await locator.boundingBox().catch(() => null);
   if (!box) return;
-  focusBox = box;
   await humanMove(page, box.x + box.width / 2, box.y + box.height / 2);
 }
 
@@ -639,7 +683,7 @@ export async function shot(
     // Playwright's screencast repeats the screenshot frame (a clipped one shows as a grey slab) for
     // ~1s afterwards — hold still and cut that window too.
     await page.waitForTimeout(1200);
-    segments.push({ start, end: (Date.now() - t0) / 1000, factor: 1000 }); // cut from the video
+    cutSince(start); // cut from the video
   }
   console.log(`[shot] ${file}`);
   return file;
@@ -848,6 +892,7 @@ export const demo = {
   actAndWait,
   fastForward,
   readMs,
+  spoken,
   shot,
   snapshot,
   forbid,

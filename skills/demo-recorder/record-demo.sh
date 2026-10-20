@@ -5,7 +5,7 @@
 # (default ~/.demo-recorder). Per-project values (URL, start commands, auth, safety rules) live in
 # project.json — see `init`.
 #
-#   record-demo.sh <demo.json|demo.spec.ts> [--project p] [--url u] [--auth name] [--speed 1.3] [--headed] [--open]
+#   record-demo.sh <demo.json|demo.spec.ts> [--project p] [--url u] [--auth name] [--speed 1.3] [--voice|--no-voice] [--headed] [--open]
 #   record-demo.sh init [--project p] [--team]     # scaffold project.json (detects dev script + port)
 #   record-demo.sh project [--project p]           # show the resolved project settings
 #   record-demo.sh up [--project p] [--root dir]   # start project.start[] in the background, wait until ready
@@ -14,17 +14,19 @@
 #   record-demo.sh probe [--url page-url] [--auth …]   # ARIA snapshot + screenshot, to pick locators
 #   record-demo.sh login <url> <name> [--browser brave|chrome]  # log in by hand; saves auth/<name>.json
 #   record-demo.sh login <name> --from brave|chrome [--domain d] # reuse your browser's login (macOS)
-#   record-demo.sh config [key [value]]            # global settings (hud.*, callout.*, share.*)
+#   record-demo.sh config [key [value]]            # global settings (hud.*, callout.*, voice.*, share.*)
+#   record-demo.sh voice ["Some caption"]          # install Chatterbox (once) and read a line with voice.* settings
 #   record-demo.sh share <video.mp4> --repo <worktree> [--pr N] [--video attach|page|link]
 #
 # Output: $DEMO_HOME/videos/<project>/<demo>-<ts>.mp4 + -shots/ (stills) + -steps/ (a frame per
-#         caption, to verify) + -sheet.png (3x3 contact sheet) + .webm (raw)
+#         caption, to verify) + -sheet.png (3x3 contact sheet) + .webm (raw: no caption bar, no voice)
 
 set -euo pipefail
 
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_HOME="${DEMO_HOME:-$HOME/.demo-recorder}"
-RUNNER_FILES=(demo-recorder.ts playwright.config.ts tsconfig.json timeline.mjs config.mjs config.defaults.json login.mjs project.mjs)
+RUNNER_FILES=(demo-recorder.ts playwright.config.ts tsconfig.json timeline.mjs config.mjs config.defaults.json login.mjs project.mjs voice.py)
+VOICE_PY="$DEMO_HOME/voice/venv/bin/python"
 
 sync_runner() {
   mkdir -p "$DEMO_HOME"/{projects,auth,videos,probe,manifest}
@@ -38,6 +40,17 @@ sync_runner() {
   fi
   (cd "$DEMO_HOME" && npx playwright install chromium >/dev/null)
 }
+# Chatterbox TTS in its own venv under $DEMO_HOME (torch + ~3 GB of weights, fetched on first use).
+ensure_voice() {
+  "$VOICE_PY" -c 'import chatterbox' 2>/dev/null && return
+  local py; py="$(command -v python3.11 || command -v python3.12 || command -v python3)"
+  echo "▶ Installing Chatterbox TTS into $DEMO_HOME/voice (one time) …" >&2
+  "$py" -m venv "$DEMO_HOME/voice/venv"
+  "$VOICE_PY" -m pip install -q --upgrade pip
+  # a private mirror may lack some wheels → fall back to public PyPI
+  "$VOICE_PY" -m pip install -q chatterbox-tts || "$VOICE_PY" -m pip install -q --index-url https://pypi.org/simple chatterbox-tts
+}
+config_json() { node "$DEMO_HOME/config.mjs" "$DEMO_HOME/config.defaults.json" "$DEMO_HOME/config.json" "$@"; }
 open_file() { if command -v open >/dev/null; then open "$1"; elif command -v xdg-open >/dev/null; then xdg-open "$1" >/dev/null 2>&1; fi; }
 url_of() { node -e 'console.log(require("url").pathToFileURL(process.argv[1]).href)' "$1"; }
 
@@ -121,7 +134,16 @@ case "$CMD" in
 
   config)
     shift; sync_runner >/dev/null
-    node "$DEMO_HOME/config.mjs" "$DEMO_HOME/config.defaults.json" "$DEMO_HOME/config.json" "$@"
+    config_json "$@"
+    exit 0 ;;
+
+  voice)
+    shift; sync_runner >/dev/null; ensure_voice
+    OUT="$DEMO_HOME/voice/sample.wav"
+    echo "▶ Reading it with voice = $(config_json voice | tr -d '\n ')  (the first run downloads the model)"
+    DEMO_VOICE_OPTS="$(config_json voice)" "$VOICE_PY" "$DEMO_HOME/voice.py" --say "${1:-Ask the chat for a better description}" "$OUT" >/dev/null 2>&1
+    echo "🔊 $(url_of "$OUT")"
+    [[ -t 1 ]] && command -v afplay >/dev/null && afplay "$OUT"
     exit 0 ;;
 
   share)
@@ -160,7 +182,7 @@ PROBE=0
 if [[ "$1" == probe ]]; then PROBE=1; SPEC="$DEMO_HOME/probe/probe.spec.ts"
 else SPEC="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"; fi
 shift
-URL="" AUTH="" SPEED=1 HEADED=() OPEN=0
+URL="" AUTH="" SPEED=1 HEADED=() OPEN=0 VOICE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --url) URL="$2"; shift 2 ;;
@@ -168,6 +190,8 @@ while [[ $# -gt 0 ]]; do
     --speed) SPEED="$2"; shift 2 ;;
     --headed) HEADED=(--headed); shift ;;
     --open) OPEN=1; shift ;;
+    --voice) VOICE=1; shift ;;
+    --no-voice) VOICE=0; shift ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -191,6 +215,9 @@ COLOR="${DEMO_COLOR_SCHEME:-$(pget config.colorScheme)}"
 curl -sk -o /dev/null --max-time 10 "$URL" || { echo "✗ $URL is not reachable — start the app (record-demo.sh up) first." >&2; exit 1; }
 
 sync_runner
+CONFIG="$(config_json)"
+[[ -n "$VOICE" ]] || VOICE="$([[ "$(config_json voice.enabled)" == true ]] && echo 1 || echo 0)"
+if [[ $VOICE == 1 && $PROBE == 0 ]]; then ensure_voice; else VOICE=0; fi
 
 RUN_SPEC="$SPEC" MANIFEST=""
 if [[ "$SPEC" == *.json ]]; then
@@ -199,16 +226,15 @@ if [[ "$SPEC" == *.json ]]; then
 fi
 
 OUT_RAW="$DEMO_HOME/test-results"
-SEGMENTS="$OUT_RAW/segments.json"
-STEPS="$OUT_RAW/steps.json"
 rm -rf "$OUT_RAW"
 
 [[ $PROBE == 1 ]] || echo "▶ Recording $SPEC against $URL (project: $PNAME) …"
 set +e
 (cd "$DEMO_HOME" && \
   DEMO_PROBE_SHOT="$DEMO_HOME/probe/probe.png" DEMO_PROBE_DIR="$DEMO_HOME/probe" \
-  DEMO_SEGMENTS_FILE="$SEGMENTS" DEMO_STEPS_FILE="$STEPS" DEMO_SHOTS_DIR="$OUT_RAW/shots" \
-  DEMO_CONFIG="$(node "$DEMO_HOME/config.mjs" "$DEMO_HOME/config.defaults.json" "$DEMO_HOME/config.json")" \
+  DEMO_SEGMENTS_FILE="$OUT_RAW/segments.json" DEMO_STEPS_FILE="$OUT_RAW/steps.json" DEMO_CAPTIONS_FILE="$OUT_RAW/captions.json" \
+  DEMO_SHOTS_DIR="$OUT_RAW/shots" DEMO_CONFIG="$CONFIG" DEMO_VOICE="${VOICE/0/}" DEMO_VOICE_PY="$VOICE_PY" \
+  DEMO_VOICE_SCRIPT="$DEMO_HOME/voice.py" DEMO_VOICE_CACHE="$DEMO_HOME/voice/cache" \
   DEMO_PROJECT="$(pget config)" DEMO_MANIFEST="$MANIFEST" \
   DEMO_TEST_DIR="$(dirname "$RUN_SPEC")" DEMO_OUTPUT_DIR="$OUT_RAW" DEMO_TSCONFIG="$DEMO_HOME/tsconfig.json" \
   DEMO_SPEED="$SPEED" DEMO_BASE_URL="$URL" DEMO_STORAGE_STATE="$AUTH" DEMO_VIEWPORT="${VIEWPORT:-1680x1050}" DEMO_COLOR_SCHEME="${COLOR:-light}" \
@@ -227,22 +253,9 @@ mkdir -p "$DEST_DIR"
 cp "$WEBM" "$STEM.webm"
 
 if command -v ffmpeg >/dev/null; then
-  # mp4/h264 plays everywhere (Slack, Jira, GitHub, QuickTime); even dims required by yuv420p.
-  RAW_DUR="$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$WEBM")"
-  # Waits marked by demo.fastForward/actAndWait play faster, cuts (shots, lead-in) vanish; rest at --speed.
-  FF="$(node "$DEMO_HOME/timeline.mjs" "$SEGMENTS" "$RAW_DUR" "$SPEED")"
-  EVEN="scale=trunc(iw/2)*2:trunc(ih/2)*2,fps=30"
-  if [[ -n "$FF" ]]; then FILTER=(-filter_complex "$FF;[vc]$EVEN[out]" -map "[out]")
-  else FILTER=(-vf "setpts=PTS/$SPEED,$EVEN"); fi
-  ffmpeg -loglevel error -y -i "$WEBM" -an "${FILTER[@]}" \
-    -c:v libx264 -pix_fmt yuv420p -crf 23 -movflags +faststart "$STEM.mp4"
-  DUR="$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$STEM.mp4")"
-  ffmpeg -loglevel error -y -i "$STEM.mp4" -vf "fps=9/$DUR,scale=560:-1,tile=3x3" -frames:v 1 "$STEM-sheet.png" || true
-  # One frame at the end of each caption step (from the raw video) — to verify beat by beat.
-  node "$DEMO_HOME/timeline.mjs" steps "$STEPS" "$RAW_DUR" | while IFS=$'\t' read -r at name; do
-    mkdir -p "$STEM-steps"
-    ffmpeg -loglevel error -y -ss "$at" -i "$WEBM" -frames:v 1 "$STEM-steps/$name.png" </dev/null || true
-  done
+  # caption bar + speed / cuts / fast-forward + voice → mp4 (h264/aac plays everywhere), sheet, step frames
+  DURS="$(node "$DEMO_HOME/timeline.mjs" "$OUT_RAW" "$WEBM" "$STEM" "$SPEED" "$CONFIG")" || echo "✗ post-production failed (see above)" >&2
+  read -r DUR RAW_DUR <<<"${DURS:-}"
 fi
 [[ -d "$OUT_RAW/shots" ]] && cp -R "$OUT_RAW/shots" "$STEM-shots"
 
@@ -250,7 +263,7 @@ fi
 echo ""
 echo "━━ RESULT ━━"
 if [[ -f "$STEM.mp4" ]]; then
-  echo "🎬 video  ${DUR%.*}s from ${RAW_DUR%.*}s raw, ×$SPEED${FF:+, waits fast-forwarded}: $(url_of "$STEM.mp4")"
+  echo "🎬 video  ${DUR%.*}s from ${RAW_DUR%.*}s raw, ×$SPEED$([[ $VOICE == 1 ]] && echo ', voiced'): $(url_of "$STEM.mp4")"
   echo "🖼  sheet: $(url_of "$STEM-sheet.png")"
 else
   echo "🎬 video (webm — install ffmpeg for mp4): $(url_of "$STEM.webm")"
