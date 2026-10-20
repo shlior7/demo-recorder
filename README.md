@@ -86,6 +86,7 @@ Everything that differs between apps. Created by `init`; lives in
 |---|---|
 | `baseUrl` | where the app is served |
 | `start[]` | processes to run: `{ name, cwd, command, ready, env }` — `ready` is a URL that answers once up |
+| `setup` | readies a fresh checkout (`yarn install`) — `record-demo.sh worktree <ref>` runs it when the cached worktree's HEAD moves |
 | `auth` | name of a saved login (`record-demo.sh login …`) or `null` |
 | `viewport`, `colorScheme` | default `1680x1050`, `light` |
 | `forbid` | text patterns no demo may click (`"/delete/i"`, `"Publish"`) — a safety net for real data |

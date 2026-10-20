@@ -6,8 +6,10 @@
 # project.json — see `init`.
 #
 #   record-demo.sh <demo.json|demo.spec.ts> [--project p] [--url u] [--auth name] [--speed 1.3] [--voice|--no-voice] [--headed] [--open]
+#   record-demo.sh brief [--pr N] [--project p]    # everything to plan a take: project, NOTES, servers, demos, PR
 #   record-demo.sh init [--project p] [--team]     # scaffold project.json (detects dev script + port)
 #   record-demo.sh project [--project p]           # show the resolved project settings
+#   record-demo.sh worktree <ref> [--as name]      # cached checkout of <ref> under $DEMO_HOME/worktrees → prints its path
 #   record-demo.sh up [--project p] [--root dir]   # start project.start[] in the background, wait until ready
 #   record-demo.sh down [--project p]              # stop what `up` started
 #   record-demo.sh servers                         # listening dev servers → port, cwd, git branch
@@ -39,8 +41,10 @@ sync_runner() {
     cp "$SKILL_DIR/runner/package.json" "$DEMO_HOME/"
     echo "▶ Installing Playwright into $DEMO_HOME …" >&2
     (cd "$DEMO_HOME" && npm install --silent --no-audit --no-fund)
+    rm -f "$DEMO_HOME/.chromium-ok"
   fi
-  (cd "$DEMO_HOME" && npx playwright install chromium >/dev/null)
+  # ~0.5 s even when nothing's missing → only after a (re)install
+  [[ -f "$DEMO_HOME/.chromium-ok" ]] || { (cd "$DEMO_HOME" && npx playwright install chromium >/dev/null) && touch "$DEMO_HOME/.chromium-ok"; }
 }
 # Chatterbox TTS in its own venv under $DEMO_HOME (torch + ~3 GB of weights, fetched on first use).
 ensure_voice() {
@@ -63,6 +67,22 @@ resolve_project() { # $1 = spec path or -
   pget() { node -e 'const p=JSON.parse(process.argv[1]); const v=process.argv[2].split(".").reduce((o,k)=>o?.[k],p); console.log(v==null?"":typeof v==="object"?JSON.stringify(v):v)' "$PROJECT_JSON" "$1"; }
   PNAME="$(pget name)"; PROOT="$(pget root)"; PFILE="$(pget file)"
 }
+# the repo to ask git/gh about: the cwd's checkout, else the project's root
+repo_dir() { git rev-parse --show-toplevel 2>/dev/null || echo "$PROOT"; }
+
+# Which branch is each running dev server actually serving? (cwd of the listening process)
+list_servers() {
+  lsof -nP -iTCP -sTCP:LISTEN -Fpcn 2>/dev/null | awk '
+    /^p/ {pid=substr($0,2)} /^c/ {cmd=substr($0,2)}
+    /^n/ {n=$0; sub(/.*:/,"",n); if (!seen[pid":"n]++) print pid, cmd, n}' |
+  while read -r pid cmd port; do
+    case "$cmd" in node|python*|Python|java|ruby|bun|deno|php|go|dotnet) ;; *) continue ;; esac
+    cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')"
+    br="$(git -C "$cwd" branch --show-current 2>/dev/null || true)"
+    [[ -n "$br" ]] || br="$(git -C "$cwd" log -1 --format='detached@%h %D' 2>/dev/null | sed 's/HEAD, //; s/HEAD$//' || true)"
+    printf ':%-6s %-8s %-8s %s  [%s]\n' "$port" "$pid" "$cmd" "$cwd" "${br:--}"
+  done | sort -t: -k2 -n
+}
 
 CMD="${1:-}"
 # pull --project out of the args wherever it is
@@ -74,7 +94,7 @@ set -- ${ARGS[@]+"${ARGS[@]}"}
 
 case "$CMD" in
   ""|-h|--help)
-    sed -n 3,23p "$0"; exit 0 ;;
+    sed -n 3,25p "$0"; exit 0 ;;
 
   init)
     shift; sync_runner >/dev/null
@@ -121,17 +141,77 @@ case "$CMD" in
     exit 0 ;;
 
   servers)
-    # Which branch is each running dev server actually serving? (cwd of the listening process)
-    lsof -nP -iTCP -sTCP:LISTEN -Fpcn 2>/dev/null | awk '
-      /^p/ {pid=substr($0,2)} /^c/ {cmd=substr($0,2)}
-      /^n/ {n=$0; sub(/.*:/,"",n); if (!seen[pid":"n]++) print pid, cmd, n}' |
-    while read -r pid cmd port; do
-      case "$cmd" in node|python*|Python|java|ruby|bun|deno|php|go|dotnet) ;; *) continue ;; esac
-      cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')"
-      br="$(git -C "$cwd" branch --show-current 2>/dev/null || true)"
-      [[ -n "$br" ]] || br="$(git -C "$cwd" log -1 --format='detached@%h %D' 2>/dev/null | sed 's/HEAD, //; s/HEAD$//' || true)"
-      printf ':%-6s %-8s %-8s %s  [%s]\n' "$port" "$pid" "$cmd" "$cwd" "${br:--}"
-    done | sort -t: -k2 -n
+    list_servers; exit 0 ;;
+
+  brief)
+    # One call instead of a dozen: what an agent needs before planning a take.
+    shift; PR=""
+    [[ "${1:-}" == --pr ]] && { PR="$2"; shift 2; }
+    resolve_project -
+    REPO="$(repo_dir)"; TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+    if [[ -n "$PR" ]]; then # network calls first, in the background, while the local sections print
+      DEF="$(git -C "$REPO" symbolic-ref -q --short refs/remotes/origin/HEAD || { git -C "$REPO" rev-parse -q --verify origin/main >/dev/null && echo origin/main; } || echo origin/master)"
+      (cd "$REPO" && gh pr view "$PR" --json number,title,state,url,headRefName,baseRefName,headRefOid,mergeCommit,body,files \
+        --jq '"#\(.number) \(.title)  [\(.state)]  \(.url)\nhead \(.headRefName) @ \(.headRefOid[:9])  base \(.baseRefName)  merge \(.mergeCommit.oid // "-" | .[:9])\nmerge\t\(.mergeCommit.oid // "")\nfiles:\n\(.files | map("  +\(.additions) -\(.deletions)  \(.path)") | join("\n"))\nbody:\n\(.body)"' >"$TMP/pr" 2>&1) &
+      (GIT_TERMINAL_PROMPT=0 git -C "$REPO" fetch -q origin "${DEF#origin/}" 2>/dev/null) &
+    fi
+    echo "── project $PNAME  (${PFILE:-no project.json — run: record-demo.sh init})  root $PROOT"
+    [[ -n "$PFILE" ]] && node -e 'console.log(JSON.stringify(JSON.parse(process.argv[1]).config,null,2))' "$PROJECT_JSON"
+    NOTES="$DEMO_HOME/projects/$PNAME/NOTES.md"
+    echo "── NOTES.md  ($NOTES)"; cat "$NOTES" 2>/dev/null || echo "(none yet)"
+    echo "── servers  :port pid cmd cwd [branch]"; list_servers
+    echo "── cached worktrees  ($DEMO_HOME/worktrees/$PNAME)"
+    for w in "$DEMO_HOME/worktrees/$PNAME"/*/; do [[ -d "$w" ]] && echo "  $(git -C "$w" log -1 --format='%h %cd' --date=short 2>/dev/null)  ${w%/}"; done
+    echo "── demos · newest take"
+    node -e '
+      const fs = require("fs"), [demos, videos] = process.argv.slice(1);
+      const ls = (d) => { try { return fs.readdirSync(d).sort(); } catch { return []; } };
+      const takes = {};
+      for (const f of ls(videos)) {
+        const m = f.match(/^(.*)-(\d{4})(\d\d)(\d\d)-(\d\d)(\d\d)\d\d\.mp4$/);
+        if (m) takes[m[1]] = { n: (takes[m[1]]?.n ?? 0) + 1, at: `${m[2]}-${m[3]}-${m[4]} ${m[5]}:${m[6]}`, file: `${videos}/${f}` };
+      }
+      const files = Object.fromEntries(ls(demos).filter((f) => /\.(json|ts)$/.test(f)).map((f) => [f.replace(/(\.spec)?\.(ts|json)$/, ""), f]));
+      const stems = [...new Set([...Object.keys(files), ...Object.keys(takes)])];
+      if (!stems.length) console.log("(none yet)");
+      for (const s of stems) {
+        const t = takes[s];
+        console.log(`  ${(files[s] ?? s + " (no demo file)").padEnd(36)} ${t ? `${t.n} take(s), newest ${t.at}  ${t.file}` : "no takes"}`);
+      }' "$DEMO_HOME/projects/$PNAME/demos" "$DEMO_HOME/videos/$PNAME"
+    if [[ -n "$PR" ]]; then
+      wait
+      MERGE="$(awk -F'\t' '$1 == "merge" { print $2 }' "$TMP/pr")"
+      echo "── PR $PR"; grep -v $'^merge\t' "$TMP/pr" || true
+      if [[ -n "$MERGE" ]]; then
+        git -C "$REPO" merge-base --is-ancestor "$MERGE" "$DEF" 2>/dev/null && echo "── merge commit ${MERGE:0:9} IS in $DEF" || echo "── merge commit ${MERGE:0:9} is NOT in $DEF"
+      fi
+    fi
+    exit 0 ;;
+
+  worktree)
+    # A checkout of <ref> kept under $DEMO_HOME/worktrees/<project>/<name> and reused by later takes and
+    # sessions: fetch + checkout + `setup` (project.json, e.g. "yarn install") only when HEAD moved.
+    # Only ever touches that directory — the user's own checkouts stay as they are.
+    shift; REF="${1:?usage: record-demo.sh worktree <branch|sha|pull/N/head> [--as name]}"; NAME="$REF"
+    [[ "${2:-}" == --as ]] && NAME="${3:?--as needs a name}"
+    resolve_project -
+    REPO="$(repo_dir)"; NAME="$(printf %s "$NAME" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^\.*//')"; [[ -n "$NAME" ]] || { echo "✗ bad worktree name" >&2; exit 1; }
+    WT="$DEMO_HOME/worktrees/$PNAME/$NAME"
+    # -f: re-register a path whose dir was deleted by hand; --no-checkout: the checkout below does it once
+    [[ -e "$WT/.git" ]] || { mkdir -p "$(dirname "$WT")" && git -C "$REPO" worktree add -q -f --detach --no-checkout "$WT" >&2; }
+    # a sha we already have needs no fetch; otherwise fetch from inside the cached tree (FETCH_HEAD is its own)
+    if [[ "$REF" =~ ^[0-9a-f]{7,40}$ ]] && SHA="$(git -C "$WT" rev-parse -q --verify "$REF^{commit}")"; then :
+    elif GIT_TERMINAL_PROMPT=0 git -C "$WT" fetch -q origin "$REF" 2>/dev/null; then SHA="$(git -C "$WT" rev-parse FETCH_HEAD)"
+    else SHA="$(git -C "$WT" rev-parse -q --verify "$REF^{commit}")" || { echo "✗ unknown ref: $REF" >&2; exit 1; }; fi
+    git -C "$WT" checkout -q -f --detach "$SHA" >&2
+    SETUP="$(pget config.setup)" STAMP="$WT.setup-done"
+    if [[ -n "$SETUP" && "$(cat "$STAMP" 2>/dev/null)" != "$SHA $SETUP" ]]; then
+      echo "▶ setup in $WT: $SETUP" >&2
+      (cd "$WT" && bash -c "$SETUP") >&2 || { echo "✗ setup failed in $WT" >&2; exit 1; }
+      echo "$SHA $SETUP" >"$STAMP"
+    fi
+    echo "✓ $REF @ ${SHA:0:9}" >&2
+    echo "$WT"
     exit 0 ;;
 
   config)
@@ -249,7 +329,7 @@ set +e
   DEMO_PROJECT="$(pget config)" DEMO_MANIFEST="$MANIFEST" \
   DEMO_TEST_DIR="$(dirname "$RUN_SPEC")" DEMO_OUTPUT_DIR="$OUT_RAW" DEMO_TSCONFIG="$RUN_DIR/tsconfig.json" \
   DEMO_SPEED="$SPEED" DEMO_BASE_URL="$URL" DEMO_STORAGE_STATE="$AUTH" DEMO_VIEWPORT="${VIEWPORT:-1680x1050}" DEMO_COLOR_SCHEME="${COLOR:-light}" \
-  npx playwright test "$(basename "$RUN_SPEC")" --config "$RUN_DIR/playwright.config.ts" ${HEADED[@]+"${HEADED[@]}"})
+  node_modules/.bin/playwright test "$(basename "$RUN_SPEC")" --config "$RUN_DIR/playwright.config.ts" ${HEADED[@]+"${HEADED[@]}"})
 STATUS=$?
 set -e
 if [[ $PROBE == 1 ]]; then echo "✓ Screenshot: $DEMO_HOME/probe/probe.png"; exit $STATUS; fi

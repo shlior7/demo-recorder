@@ -6,7 +6,8 @@
 // - writes <stem>-chapters.json: every caption, callout, fast-forward span and still/cut in FINAL-video
 //   seconds — for anything that plays the take (a player, the PR page, a preview inside another recording)
 // usage: node timeline.mjs <raw-dir> <video.webm> <out-stem> <speed> <config-json>  → prints "<final> <raw>" seconds
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 const [dir, webm, stem, speedArg, cfgArg] = process.argv.slice(2);
@@ -25,6 +26,8 @@ const hud = { position: 'top', size: 'md', theme: 'dark', ...cfg.hud, ...run.hud
 const accent = run.accent ?? cfg.callout?.color ?? '#f43f5e';
 const captions = run.captions ?? []; // [{ t, text, voice? }] — every caption change, ⏩ markers included
 const ffmpeg = (args) => execFileSync('ffmpeg', ['-loglevel', 'error', '-y', ...args], { stdio: ['ignore', 'ignore', 'inherit'] });
+const jobs = []; // independent ffmpeg runs (sheet, step frames) → in parallel, awaited before exit
+const ffmpegBg = (args) => jobs.push(promisify(execFile)('ffmpeg', ['-loglevel', 'error', '-y', ...args]));
 const ffprobe = (entries, f) =>
   execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', entries, '-of', 'csv=p=0', f]).toString().trim();
 const dur = Number(ffprobe('format=duration', webm));
@@ -82,10 +85,10 @@ if (voiced.length) {
   graph += `;${delays.join(';')};${voiced.map((_, i) => `[a${i}]`).join('')}amix=inputs=${voiced.length}:normalize=0,apad,atrim=end=${total.toFixed(3)}[aout]`;
   maps.push('-map', '[aout]', '-c:a', 'aac', '-b:a', '160k');
 }
-ffmpeg([...inputs, '-filter_complex', graph, ...maps, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '23', '-movflags', '+faststart', `${stem}.mp4`]);
+ffmpeg([...inputs, '-filter_complex', graph, ...maps, '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-crf', '23', '-movflags', '+faststart', `${stem}.mp4`]);
 
 // ── verify artifacts: 3×3 contact sheet, and one frame per caption/callout at the moment it was meant to show ──
-ffmpeg(['-i', `${stem}.mp4`, '-vf', `fps=9/${total},scale=560:-1,tile=3x3`, '-frames:v', '1', `${stem}-sheet.png`]);
+ffmpegBg(['-i', `${stem}.mp4`, '-vf', `fps=9/${total},scale=560:-1,tile=3x3`, '-frames:v', '1', `${stem}-sheet.png`]);
 const steps = read('steps.json');
 
 // ── chapters: final-video seconds of every beat ──
@@ -107,8 +110,9 @@ steps.forEach((st, i) => {
   const next = i + 1 < steps.length ? steps[i + 1].t : dur;
   const at = st.at ?? Math.max(st.t + 0.2, Math.min(next - 0.4, dur - 0.2)); // the step's end state
   const slug = st.text.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 50);
-  ffmpeg(['-ss', Math.min(out(at), total - 0.05).toFixed(3), '-i', `${stem}.mp4`, '-frames:v', '1', `${stem}-steps/${String(i + 1).padStart(2, '0')}-${slug}.png`]);
+  ffmpegBg(['-ss', Math.min(out(at), total - 0.05).toFixed(3), '-i', `${stem}.mp4`, '-frames:v', '1', `${stem}-steps/${String(i + 1).padStart(2, '0')}-${slug}.png`]);
 });
+await Promise.all(jobs);
 console.log(`${total.toFixed(1)} ${dur.toFixed(1)}`);
 
 /** One W×BAR_H PNG per distinct caption, drawn by Chromium so type and emoji render like the app. */
