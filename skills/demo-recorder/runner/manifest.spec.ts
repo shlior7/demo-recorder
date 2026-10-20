@@ -14,6 +14,7 @@
  *     { "goto": "./" },  // relative to baseUrl; "/x" is origin-absolute (drops a subpath)
  *     { "request": { "method": "POST", "url": "/api/x", "data": {} } },
  *     { "start": true },                      { "caption": "Step 1 · …", "hold": 1500 },
+ *     { "caption": "Done", "voice": { "energy": "rainbow", "say": "Done!" } },  // this line's voice (or false = silent)
  *     { "click": LOC },  { "tap": LOC },      { "type": LOC, "text": "…" },
  *     { "press": "Escape" },                  { "wait": 800 },
  *     { "waitFor": LOC, "timeout": 30000, "fastForward": 8, "state": "visible|hidden" },
@@ -45,8 +46,8 @@ async function run(page: Page, steps: Json[]): Promise<void> {
       if (s.goto !== undefined) await page.goto(s.goto);
       else if (s.start) await demo.startRecording(page, s.hydrate);
       else if (s.request) await page.request.fetch(s.request.url, { method: s.request.method ?? 'GET', data: s.request.data });
-      else if (s.caption !== undefined) await demo.narrate(page, s.caption, s.hold ?? 1500);
-      else if (s.hud !== undefined) await demo.hud(page, s.hud);
+      else if (s.caption !== undefined) await demo.narrate(page, s.caption, s.hold ?? 1500, { voice: s.voice });
+      else if (s.hud !== undefined) await demo.hud(page, s.hud, { voice: s.voice });
       else if (s.click) await demo.click(page, loc(page, s.click));
       else if (s.tap) await demo.tap(page, loc(page, s.tap));
       else if (s.type) await demo.slowType(page, loc(page, s.type), s.text ?? '', s.delay);

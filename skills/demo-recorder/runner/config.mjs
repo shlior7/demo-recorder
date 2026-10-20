@@ -39,7 +39,10 @@ const user = read(userFile);
 const merged = merge(defaults, user);
 
 if (!key) console.log(JSON.stringify(merged, null, 2));
-else if (value === undefined) console.log(get(merged, key) ?? '');
+else if (value === undefined) {
+  const v = get(merged, key) ?? '';
+  console.log(typeof v === 'object' ? JSON.stringify(v) : v); // a section (`config voice`) is JSON for voice.py
+}
 else {
   if (get(defaults, key) === undefined) throw new Error(`unknown setting ${key}`);
   if (ALLOWED[key] && !ALLOWED[key].includes(value)) throw new Error(`${key}: one of ${ALLOWED[key].join(' | ')}`);

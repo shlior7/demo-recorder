@@ -209,7 +209,21 @@ on another machine are kept. Recordings of private work should go to a host with
 ```bash
 $R/record-demo.sh voice "Ask the chat for a better description"   # one-time install + a sample with your settings
 $R/record-demo.sh <demo.json> --voice                              # every step title read aloud
+$R/record-demo.sh revoice <take.mp4> --tries 8                      # re-read a finished take's captions, video untouched
+$R/record-demo.sh revoice <take.mp4> --line "that is it" --energy rainbow --say "Rerun. That's it!"   # just one line
 ```
+
+`revoice` re-reads a finished take's captions with the current `voice.*` settings, at the same moments,
+and writes `<take>-revoiced.mp4`. The video stream is copied as is. `--line` (repeatable, matched
+against the caption text) re-reads only those lines and keeps the rest of the audio. `--energy`,
+`--exaggeration`, `--cfg`, `--temperature` and `--say` set that line's voice. `--tries N` re-reads a line
+until its ending falls, keeping the lowest of N. The output has its own `-chapters.json` with the
+overrides, so edits stack, and re-voicing a `-revoiced` take updates it in place. It warns if a line runs
+into the next caption.
+
+Per line in a manifest: `{ "caption": "…", "voice": { "energy": "rainbow", "say": "…" } }` (any `voice.*`
+key, `say` = the words spoken) or `"voice": false` for a silent line. In a spec:
+`demo.narrate(page, text, hold, { voice: { … } })`.
 
 Each caption is spoken once it appears, and stays on screen until its line has finished — so the
 video paces itself to the voice. Clips are cached by text and settings (re-takes only synthesise

@@ -246,7 +246,10 @@ URL/auth/viewport come from flags > manifest > project.json. `--voice` (or `conf
 true`) narrates every caption with Chatterbox TTS: first use installs it into `$DEMO_HOME/voice`
 (several GB, minutes — tell the user before the first voiced take); `record-demo.sh voice "text"`
 auditions the current `voice.*` settings (`energy`: `calm` · `warm` · `upbeat` default · `rainbow` =
-max excitement; `ref` = a .wav to clone). The video is saved even when a step
+max excitement; `ref` = a .wav to clone). **One line, its own voice**: a caption step takes
+`"voice": { "energy": "rainbow", "exaggeration": 0.85, "say": "Rerun. That's it!" }` (any `voice.*` key; `say` =
+other words or punctuation than the caption shows, for delivery) or `"voice": false` (silent); in a spec
+`demo.narrate(page, text, hold, { voice: {…} })`. The video is saved even when a step
 fails (exit code still reflects it). `--open` on the take you hand back, not while iterating.
 
 ## 7. Verify — always, before handing back
@@ -258,6 +261,23 @@ fails (exit code still reflects it). `--open` on the take you hand back, not whi
 3. Every `-shots/` still — they ship to the PR.
 
 A green run proves nothing about the screen. Fix and re-record until all three look right.
+
+## 7½. Edits after a take — the smallest tool that does it
+
+The user asks for a change to a take they've seen → change only that, fastest path first:
+
+| ask | do | time |
+|---|---|---|
+| one line sounds wrong ("more energy on the last line", "it ends like a question", "say X instead") | `record-demo.sh revoice <take.mp4> --line "<caption words>" [--energy rainbow] [--exaggeration 0.85] [--say "…"] [--tries 8]` | seconds |
+| the whole voice (other energy, a cloned `ref`, a silent take that should talk) | `config voice.<key> …`, then `record-demo.sh revoice <take.mp4> [--tries 8]` | ~1 min |
+| what's on screen (a step, a caption's text, a zoom, a callout) | edit the manifest/spec, re-record | minutes |
+
+`revoice` copies the video stream untouched and lays the new line(s) in at the caption's moment; with
+`--line` the rest of the audio is kept as is. It writes `<take>-revoiced.mp4` + its own `-chapters.json`
+(holding the overrides), and re-voicing a `-revoiced` take updates it in place — so edits stack. It warns
+when a new line runs past the next caption: shorten `say`, or re-record. **Also put the override into the
+manifest/spec step** (`"voice": {…}`), so the next full re-record keeps it. `--tries 8`: a line is re-read
+until its ending falls (an "open", rising end is Chatterbox's usual flaw), keeping the lowest of 8.
 
 ## 8. Deliver, share, remember
 

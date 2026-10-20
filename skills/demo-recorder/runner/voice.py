@@ -32,24 +32,34 @@ ENERGY = {
 
 # Read as a paragraph's last line, a short caption tends to end on a rising, "open" pitch (measured with
 # pYIN: 9/15 lines rose at upbeat, 8/15 at rainbow). Followed by another sentence it falls like a finished
-# statement (3/14, 3/15). So: say the caption + TAIL, keep only the caption — up to the last pause.
+# statement (3/14, 3/15). So: say the caption + TAIL, keep only the caption — up to the pause between them.
 TAIL = " That's it."
 
 
-def until_last_pause(wav, sr, min_at=0.0, min_gap=0.12, tail_min=0.25):
-    """wav cut at the start of its last ≥min_gap pause that leaves ≥tail_min s after it and starts after
-    min_at (fraction of the clip — a comma pause inside the caption must not win), or None."""
+def caption_only(wav, sr, share, min_gap=0.12, tail_min=0.25):
+    """wav cut at the pause between the caption and TAIL, or None (no such pause → read it plain).
+    That pause is the ≥min_gap one NEAREST to where the caption should end (`share` of the clip, by
+    characters) — not the last one: "That's it" has a stop of its own, and cutting there keeps a "Tha…"
+    that sounds unfinished. A pause before 0.8·share is a comma inside the caption and never counts."""
     hop = int(0.01 * sr)
     env = wav.abs().mean(0).unfold(0, hop, hop).mean(1)
-    quiet = env < env.max() * 0.05
-    need, cut, run = int(min_gap / 0.01), None, 0
-    for i in range(len(env) - int(tail_min / 0.01)):
-        run = run + 1 if quiet[i] else 0
-        if run == need:
-            cut = i - need + 1
-    if cut is None or cut < min_at * len(env):
+    quiet = (env < env.max() * 0.05).tolist() + [False]
+    pauses, start = [], None  # (start, end) quiet runs ≥ min_gap that leave ≥ tail_min after them
+    for i, q in enumerate(quiet):
+        if q and start is None:
+            start = i
+        elif not q and start is not None:
+            if i - start >= min_gap / 0.01 and i <= len(env) - tail_min / 0.01:
+                pauses.append((start, i))
+            start = None
+    end = share * len(env)
+    pauses = [p for p in pauses if p[0] >= 0.8 * end]
+    if not pauses:
         return None
-    out = wav[:, : (cut + 6) * hop].clone()  # keep 60 ms of the natural decay
+    a, b = min(pauses, key=lambda p: abs(p[0] - end))
+    # keep the whole pause up to just before the tail: a soft trailing vowel under the 5% "quiet" line is
+    # still heard, and clipping it sounds unfinished — silence is free
+    out = wav[:, : max(a + 6, b - 4) * hop].clone()
     fade = min(out.shape[-1], int(0.03 * sr))
     out[:, -fade:] *= torch.linspace(1, 0, fade)
     return out
@@ -72,8 +82,7 @@ def say(req):
         temperature=pick("temperature", 2),
     )
     # no clean pause before the tail → plain read; the tail must never be heard
-    share = len(text) / len(text + TAIL)  # where the caption should end, by characters
-    wav = until_last_pause(gen(text + TAIL), model.sr, min_at=0.8 * share)
+    wav = caption_only(gen(text + TAIL), model.sr, share=len(text) / len(text + TAIL))
     if wav is None:
         wav = gen(text)
     # write-then-rename: a concurrent take voicing the same caption (same cache file) never reads half a wav
