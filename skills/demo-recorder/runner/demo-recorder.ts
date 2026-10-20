@@ -680,9 +680,27 @@ export async function shot(
   } finally {
     await toggle(false);
     if (target && highlight) await target.evaluate((el, prev) => ((el as HTMLElement).style.outline = prev), ring).catch(() => {});
-    // Playwright's screencast repeats the screenshot frame (a clipped one shows as a grey slab) for
-    // ~1s afterwards — hold still and cut that window too.
-    await page.waitForTimeout(1200);
+    // Playwright's screencast keeps re-sending the screenshot frame (a clipped one shows as a grey
+    // slab) until the page paints again — a static page never does. Repaint a speck every frame
+    // for 1.2s, then cut that window too.
+    await page
+      .evaluate(
+        () =>
+          new Promise<void>((done) => {
+            const d = document.createElement('div');
+            d.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;pointer-events:none;z-index:2147483647';
+            document.documentElement.appendChild(d);
+            const end = performance.now() + 1200;
+            let n = 0;
+            const tick = () => {
+              d.style.background = `rgba(128,128,128,${n++ % 2 ? 0.02 : 0.03})`;
+              if (performance.now() < end) requestAnimationFrame(tick);
+              else d.remove(), done();
+            };
+            tick();
+          })
+      )
+      .catch(() => page.waitForTimeout(1200));
     cutSince(start); // cut from the video
   }
   console.log(`[shot] ${file}`);
