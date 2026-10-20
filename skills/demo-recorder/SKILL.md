@@ -29,8 +29,12 @@ $DEMO_HOME/
 
 ## 0. Project settings — create once, then reuse
 
-`"$S/record-demo.sh" project` shows the resolved settings (team file in the repo wins over the
-personal one). None yet → `"$S/record-demo.sh" init` (add `--team` to create the committed variant)
+**Start every request with one call** — `"$S/record-demo.sh" brief [--pr N]` prints the resolved
+settings (team file in the repo wins over the personal one), `NOTES.md`, running servers + branch,
+cached worktrees, existing demos with their newest take, and with `--pr` the PR's title, state,
+branch, merge commit, files, body and whether it's in the default branch. Don't re-run those one by
+one (`project`, `servers`, `cat NOTES.md`, `gh pr view`, `git merge-base`); batch other independent
+lookups into one shell call too. None yet → `"$S/record-demo.sh" init` (add `--team` to create the committed variant)
 detects the package manager, dev script and framework port, then **finish it by discovery**:
 
 | key | meaning |
@@ -39,6 +43,7 @@ detects the package manager, dev script and framework port, then **finish it by 
 | `root` | repo path (personal file only; `up --root <worktree>` overrides per run) |
 | `baseUrl` | where the app is served, e.g. `http://localhost:3000` |
 | `start[]` | one entry per process: `{ "name", "cwd", "command", "ready", "env" }` — `ready` is a URL that answers once it's up (API first, then UI) |
+| `setup` | shell command that readies a fresh checkout (`yarn install && yarn workspace x build`) — run by `worktree` when HEAD moved |
 | `auth` | saved-login name (`auth/<name>.json`) or `null` |
 | `viewport` / `colorScheme` | default `1680x1050` (wide = roomy layout) / `light` |
 | `forbid` | click-safety: text patterns (`"/delete/i"`, `"Publish"`) a demo must never click |
@@ -55,7 +60,7 @@ Every demo of the project inherits `forbid`, `failOn`, `localStorage`, `look`, `
 Derive the flow from the code — don't guess:
 
 ```bash
-gh pr view <N> --json headRefName,title,body,files      # PR given: its body is the best brief
+# PR given: `brief --pr N` already printed its body (the best brief) and files
 B=$(git symbolic-ref -q --short refs/remotes/origin/HEAD \
   || { git rev-parse -q --verify origin/main >/dev/null && echo origin/main; } || echo origin/master)
 git log --oneline "$B"..HEAD; git diff --stat "$B"...HEAD
@@ -79,7 +84,7 @@ git diff "$B"...HEAD -- '*.tsx' '*.jsx' '*.vue' '*.svelte' '*.html' '*.css'
 ## 2. Get the RIGHT app running — branch matters
 
 ```bash
-"$S/record-demo.sh" servers        # :port pid cmd cwd [git branch]  — run this FIRST
+"$S/record-demo.sh" servers        # :port pid cmd cwd [git branch]  — `brief` already printed it
 "$S/record-demo.sh" up [--root <worktree>]    # starts project.start[] in the background, waits for ready
 "$S/record-demo.sh" down                      # stops exactly what `up` started
 ```
@@ -92,10 +97,15 @@ git diff "$B"...HEAD -- '*.tsx' '*.jsx' '*.vue' '*.svelte' '*.html' '*.css'
   --strictPort`, Next `-p N`, `PORT=N`), pointing the UI at your API via the env/proxy var the dev
   script uses. Port hard-coded in code → a launcher in `$DEMO_HOME/projects/<p>/` that imports the
   entry point and starts it on your port — don't edit the repo.
-- **No worktree for the branch** → `git worktree add --detach $DEMO_HOME/worktrees/<p>-<pr> origin/<branch>`,
-  install deps there, `git worktree remove` it when done. Fresh worktrees lack deps / `.env` / local
-  data: install, or reuse the user's other checkout's venv/.env **read-only** (say so); empty data →
-  run the repo's `seed*`/`fixtures` scripts into an **isolated** store, never the user's.
+- **No checkout of the branch** → `WT="$("$S/record-demo.sh" worktree <branch|sha> [--as pr<N>])"`
+  (merged PR, branch gone → the merge commit `brief` printed). It's a **cached** worktree under
+  `$DEMO_HOME/worktrees/<p>/`, reused by every later take and session: fetch + `checkout --detach`,
+  then project `setup` only when HEAD moved (cold ~18 s, re-take ~0.2–2 s). Don't `git worktree
+  remove` it after a take. It never touches the user's own checkouts. Fresh worktrees lack `.env` /
+  local data: reuse the user's other checkout's venv/.env **read-only** (say so); empty data → run the
+  repo's `seed*`/`fixtures` scripts into an **isolated** store, never the user's.
+- **Keep the stack you started running across takes** in this conversation — a re-take reuses it.
+  Stop it when the user is done or switches branch, not after every take.
 - **Write flows**: check what a submit triggers beyond the DB (grep the diff for `slack`, `notify`,
   `webhook`, `mail`) and switch it off in your isolated stack (env vars, settings).
 - Never record against production unless the user explicitly says so. Leave the target worktree
@@ -241,4 +251,6 @@ A green run proves nothing about the screen. Fix and re-record until all three l
 - **Jira/issue tracker** (`share.jira`): find candidate keys (`[A-Z][A-Z0-9]+-\d+`) in branch / PR
   title / commits and **confirm each exists** with the tracker tool (`ADR-016`, `UTF-8` look like keys).
   Post the "Jira comment" block `share` printed (links only — never base64 a video through a tool).
-- Stop every server you started (`down`), remove temp worktrees, update `project.json` + `NOTES.md`.
+- Update `project.json` (incl. `setup`) + `NOTES.md`. Servers you started stay up for re-takes (§2).
+  Cleanup that deletes files (datastore copies, a worktree the user wants gone) runs detached so it
+  never blocks handing back the result: `nohup rm -rf <dir> >/dev/null 2>&1 &`.
