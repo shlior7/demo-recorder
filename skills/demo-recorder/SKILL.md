@@ -163,7 +163,7 @@ Full reference: header of `runner/manifest.spec.ts`.
 **Spec** (`.spec.ts`) when you need real logic (loops, branching, computed values):
 `import { test, expect, demo } from 'demo-recorder'` — same toolkit: `demo.narrate/hud/click/tap/
 slowType/actAndWait/fastForward/withZoom/callout/clearCallouts/shot/snapshot/forbid/failOn/
-fakeLocalStorage/configure/loc`.
+fakeLocalStorage/configure/loc/waitForCaption` (`waitForCaption` = let the caption on screen finish being read/spoken, e.g. before playing media with sound).
 
 **Writing captions** — fewer, shorter, clearer (the toolkit warns `[caption-lint]` otherwise):
 - One caption per beat, **≤ 8 words**, one idea, verb-first: "Ask the chat", "Send it to the owners".

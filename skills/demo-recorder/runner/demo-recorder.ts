@@ -974,6 +974,8 @@ export const demo = {
   actAndWait,
   fastForward,
   readMs,
+  /** Wait until the caption on screen has been read (and spoken) — e.g. before playing media whose sound must not overlap it. */
+  waitForCaption: letCaptionBeRead,
   spoken,
   shot,
   snapshot,
