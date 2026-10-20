@@ -214,7 +214,8 @@ $R/record-demo.sh <demo.json> --voice                              # every step 
 Each caption is spoken once it appears, and stays on screen until its line has finished — so the
 video paces itself to the voice. Clips are cached by text and settings (re-takes only synthesise
 what changed), and the seconds spent synthesising are cut from the video. Symbols are spoken
-sensibly (`·` and `—` become pauses, `→` "to"). Chatterbox runs locally; its output carries
+sensibly (`·` and `—` become pauses, `→` "to"), and each line ends like a finished statement, not
+on a rising "open" note (it's read with a short sentence after it, which is then cut). Chatterbox runs locally; its output carries
 Resemble AI's inaudible watermark.
 
 ## Security notes
