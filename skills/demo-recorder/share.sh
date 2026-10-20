@@ -88,12 +88,12 @@ if [[ $VIDEO == attach ]]; then
     VIDEO_URL="https://github.com/user-attachments/assets/<video>"
     for f in ${SHOTS[@]+"${SHOTS[@]}"}; do URLS+=("https://github.com/user-attachments/assets/<$(basename "$f")>"); done
   else
-    cp "$SKILL_DIR/runner/gh-upload.spec.ts" "$DEMO_HOME/gh/"
+    cp "$SKILL_DIR/runner/"{gh-upload.spec.ts,playwright.config.ts} "$DEMO_HOME/gh/"
     OUT="$DEMO_HOME/gh/out.json"; rm -f "$OUT"
     FILES="$(node -e 'console.log(JSON.stringify(process.argv.slice(1)))' "$MP4" ${SHOTS[@]+"${SHOTS[@]}"})"
     (cd "$DEMO_HOME" && DEMO_NO_VIDEO=1 DEMO_TEST_DIR="$DEMO_HOME/gh" DEMO_OUTPUT_DIR="$DEMO_HOME/gh/results" \
       DEMO_STORAGE_STATE="$GH_AUTH" GH_PR_URL="https://github.com/$NWO/pull/$PR" GH_UPLOAD_FILES="$FILES" GH_UPLOAD_OUT="$OUT" \
-      npx playwright test gh-upload.spec.ts --config playwright.config.ts --reporter=line) >&2 \
+      npx playwright test gh-upload.spec.ts --config gh/playwright.config.ts --reporter=line) >&2 \
       || { echo "✗ GitHub upload failed (session expired? re-run: record-demo.sh login https://github.com/login github)" >&2; exit 1; }
     get() { node -e 'console.log(require(process.argv[1])[process.argv[2]] ?? "")' "$OUT" "$1"; }
     VIDEO_URL="$(get "$(basename "$MP4")")"
