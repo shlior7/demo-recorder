@@ -159,6 +159,15 @@ Full reference: header of `runner/manifest.spec.ts`.
 slowType/actAndWait/fastForward/withZoom/callout/clearCallouts/shot/snapshot/forbid/failOn/
 fakeLocalStorage/configure/loc`.
 
+**Writing captions** — fewer, shorter, clearer (the toolkit warns `[caption-lint]` otherwise):
+- One caption per beat, **≤ 8 words**, one idea, verb-first: "Ask the chat", "Send it to the owners".
+- Don't narrate what's obvious on screen, and don't stack two captions where one works — merge
+  "Open the panel" + "Type a question" into "Ask the chat a question".
+- Details go in a **callout** next to the element, not in the caption.
+- Open with the pitch (what's new + why it matters, ≤ 10 words); close with the outcome.
+- Every caption/callout stays up at least its reading time (`hud.wpm`, `hud.minMs`, scaled by
+  `--speed`) — so `hold` is only how long the *action* pauses; you can't make text flash by.
+
 Baked-in lessons (don't relearn):
 - Always move through the wrappers — a raw `locator.click()` desyncs the cursor glide.
 - Overlays live on `<html>`, not `<body>` (framework roots reconcile body children away); `start`

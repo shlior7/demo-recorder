@@ -2,7 +2,9 @@
   "hud": {
     "position": "auto",
     "size": "md",
-    "theme": "dark"
+    "theme": "dark",
+    "wpm": 180,
+    "minMs": 1500
   },
   "callout": {
     "color": "#f43f5e",

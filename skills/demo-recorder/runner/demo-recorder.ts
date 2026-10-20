@@ -79,6 +79,9 @@ export const test = base.extend({
     t0 = Date.now();
     segments.length = 0;
     steps.length = 0;
+    lastCaption = '';
+    captionNeedMs = 0;
+    captionCount = 0;
     shotCount = 0;
     forbidden = [];
     failWatch = [];
@@ -89,6 +92,9 @@ export const test = base.extend({
     await use(page);
     if (process.env.DEMO_SEGMENTS_FILE) writeFileSync(process.env.DEMO_SEGMENTS_FILE, JSON.stringify(segments));
     if (process.env.DEMO_STEPS_FILE) writeFileSync(process.env.DEMO_STEPS_FILE, JSON.stringify(steps));
+    const minutes = (Date.now() - t0) / 60_000;
+    if (captionCount / Math.max(minutes, 0.5) > 12)
+      console.warn(`[caption-lint] ${captionCount} captions in ${minutes.toFixed(1)} min — combine beats; let callouts point at details`);
   },
 });
 
@@ -97,7 +103,13 @@ const CURSOR_ID = 'demo-cursor';
 const CALLOUTS_ID = 'demo-callouts';
 
 // Look & feel — `record-demo.sh config hud.position bottom` (persisted) or `demo.configure()` (per spec).
-type HudConfig = { position: 'top' | 'bottom' | 'auto' | 'off'; size: 'sm' | 'md' | 'lg'; theme: 'dark' | 'light' };
+type HudConfig = {
+  position: 'top' | 'bottom' | 'auto' | 'off';
+  size: 'sm' | 'md' | 'lg';
+  theme: 'dark' | 'light';
+  wpm: number; // reading speed for the minimum on-screen time of captions/callouts
+  minMs: number; // floor for any caption/callout, however short
+};
 type CalloutConfig = { color: string; ring: boolean; inShots: boolean };
 const userCfg = (() => {
   try {
@@ -106,7 +118,7 @@ const userCfg = (() => {
     return {};
   }
 })();
-let hudCfg: HudConfig = { position: 'auto', size: 'md', theme: 'dark', ...userCfg.hud };
+let hudCfg: HudConfig = { position: 'auto', size: 'md', theme: 'dark', wpm: 180, minMs: 1500, ...userCfg.hud };
 let calloutCfg: CalloutConfig = { color: '#f43f5e', ring: true, inShots: true, ...userCfg.callout };
 
 /** Per-spec override of the persisted look, e.g. `demo.configure({ hud: { position: 'bottom' } })`. */
@@ -137,6 +149,26 @@ let mouse = { x: 760, y: 480 };
 // took — a per-step timing trail in the run log, so a stuck/slow step is visible without the video.
 let lastStepAt: number | null = null;
 let lastCaption = '';
+// Minimum reading time: the caption on screen must stay up for `captionNeedMs` (real time, scaled by
+// --speed so it's still readable in the final video) before anything replaces or fast-forwards it.
+let captionShownAt = 0;
+let captionNeedMs = 0;
+let captionCount = 0;
+const SPEED = Number(process.env.DEMO_SPEED) || 1;
+
+/** How long `text` must be visible to be read: base + words at hud.wpm, clamped to [minMs, 7s],
+ *  scaled by --speed (a 1.5× video needs 1.5× the real time). */
+export function readMs(text: string): number {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  const ms = Math.min(7000, Math.max(Number(hudCfg.minMs) || 1500, 700 + (words * 60_000) / (Number(hudCfg.wpm) || 180)));
+  return Math.round(ms * SPEED);
+}
+
+/** Wait until the current caption has had its reading time. */
+async function letCaptionBeRead(page: Page): Promise<void> {
+  const left = captionNeedMs - (Date.now() - captionShownAt);
+  if (lastCaption && left > 0) await page.waitForTimeout(left);
+}
 
 /** Reset the cursor tracker. Call at the top of every spec. */
 export function resetCursor(x = 760, y = 480): void {
@@ -215,7 +247,16 @@ export async function fakeLocalStorage(page: Page, values: Record<string, string
  *  navigation and is re-created after a full page load. Each call is a "step": logged with the
  *  previous step's duration, and record-demo.sh saves one verify-frame per step. */
 export async function hud(page: Page, text: string): Promise<void> {
+  if (text === lastCaption) return;
+  await letCaptionBeRead(page); // never cut the previous caption short
   const now = Date.now();
+  if (text) {
+    captionCount++;
+    const words = text.trim().split(/\s+/).length;
+    if (words > 12) console.warn(`[caption-lint] ${words} words — aim for ≤ 8, one idea; move detail into a callout: "${text}"`);
+  }
+  captionShownAt = now;
+  captionNeedMs = text ? readMs(text) : 0;
   const deltaMs = lastStepAt === null ? 0 : now - lastStepAt;
   console.log(`[step +${(deltaMs / 1000).toFixed(1)}s] ${text}`);
   lastStepAt = now;
@@ -297,7 +338,8 @@ export async function callout(
   text: string,
   opts: { holdMs?: number; keep?: boolean; ring?: boolean; replace?: boolean } = {}
 ): Promise<void> {
-  const { holdMs = 2500, keep = false, ring = calloutCfg.ring, replace = true } = opts;
+  const { keep = false, ring = calloutCfg.ring, replace = true } = opts;
+  const holdMs = Math.max(opts.holdMs ?? 0, readMs(text)); // never shorter than its reading time
   const box = await stableBox(page, target);
   if (!box) return;
   const now = (Date.now() - t0) / 1000;
@@ -422,7 +464,9 @@ export async function clearCallouts(page: Page): Promise<void> {
 }
 
 /** Set a caption, then hold so the viewer can read it before the action runs. */
-export async function narrate(page: Page, text: string, holdMs = 1500): Promise<void> {
+/** Set a caption and pause the action for `holdMs`. The caption itself stays up at least its
+ *  reading time (readMs) regardless — the next action may already start while it's being read. */
+export async function narrate(page: Page, text: string, holdMs = 1200): Promise<void> {
   await hud(page, text);
   await page.waitForTimeout(holdMs);
 }
@@ -619,6 +663,7 @@ export async function snapshot(page: Page, label: string): Promise<void> {
  *  gets a ⏩ while it runs so the speed-up is honest. factor ≤ 1 = no-op. */
 export async function fastForward<T>(page: Page, fn: () => Promise<T>, factor = 8): Promise<T> {
   if (factor <= 1 && !failWatch.length) return fn();
+  if (factor > 1) await letCaptionBeRead(page); // read it at normal speed before the ⏩ part
   const caption = factor > 1 ? lastCaption : '';
   if (caption) await paint(page, `${caption}  ⏩`);
   const start = (Date.now() - t0) / 1000;
@@ -802,6 +847,7 @@ export const demo = {
   slowType,
   actAndWait,
   fastForward,
+  readMs,
   shot,
   snapshot,
   forbid,

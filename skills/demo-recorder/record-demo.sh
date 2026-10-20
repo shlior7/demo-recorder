@@ -211,7 +211,7 @@ set +e
   DEMO_CONFIG="$(node "$DEMO_HOME/config.mjs" "$DEMO_HOME/config.defaults.json" "$DEMO_HOME/config.json")" \
   DEMO_PROJECT="$(pget config)" DEMO_MANIFEST="$MANIFEST" \
   DEMO_TEST_DIR="$(dirname "$RUN_SPEC")" DEMO_OUTPUT_DIR="$OUT_RAW" DEMO_TSCONFIG="$DEMO_HOME/tsconfig.json" \
-  DEMO_BASE_URL="$URL" DEMO_STORAGE_STATE="$AUTH" DEMO_VIEWPORT="${VIEWPORT:-1680x1050}" DEMO_COLOR_SCHEME="${COLOR:-light}" \
+  DEMO_SPEED="$SPEED" DEMO_BASE_URL="$URL" DEMO_STORAGE_STATE="$AUTH" DEMO_VIEWPORT="${VIEWPORT:-1680x1050}" DEMO_COLOR_SCHEME="${COLOR:-light}" \
   npx playwright test "$(basename "$RUN_SPEC")" --config playwright.config.ts ${HEADED[@]+"${HEADED[@]}"})
 STATUS=$?
 set -e
