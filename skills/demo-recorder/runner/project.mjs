@@ -70,6 +70,7 @@ if (cmd === 'resolve') {
     ...(team ? {} : { root }),
     baseUrl,
     start: command ? [{ name: 'app', cwd: '.', command, ready: baseUrl }] : [],
+    setup: existsSync(pkgFile) ? `${pm} install` : '', // run in a cached worktree when its HEAD moves (record-demo.sh worktree)
     auth: null,
     viewport: '1680x1050',
     colorScheme: 'light',
