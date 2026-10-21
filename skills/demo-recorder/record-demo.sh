@@ -18,6 +18,7 @@
 #   record-demo.sh login <name> --from brave|chrome [--domain d] # reuse your browser's login (macOS)
 #   record-demo.sh config [key [value]]            # global settings (hud.*, callout.*, voice.*, share.*)
 #   record-demo.sh voice ["Some caption"]          # install Chatterbox (once) and read a line with voice.* settings
+#   record-demo.sh setup ffmpeg                    # download a static ffmpeg + ffprobe into $DEMO_HOME (~60 MB) — ask first
 #   record-demo.sh revoice <take.mp4> [--line T] [--energy E] [--say S] [--tries N]  # re-read captions, video untouched
 #   record-demo.sh share <video.mp4> --repo <worktree> [--pr N] [--video attach|page|link]
 #
@@ -57,6 +58,21 @@ ensure_voice() {
   # a private mirror may lack some wheels → fall back to public PyPI
   "$VOICE_PY" -m pip install -q chatterbox-tts || "$VOICE_PY" -m pip install -q --index-url https://pypi.org/simple chatterbox-tts
 }
+# ffmpeg + ffprobe for post-production: $DEMO_FFMPEG (a path, or "none") > on PATH > the static build that
+# `record-demo.sh setup ffmpeg` downloads into $DEMO_HOME/ffmpeg. Nothing is ever downloaded unasked.
+FF_DIR="$DEMO_HOME/ffmpeg"
+FF_HINT="record-demo.sh setup ffmpeg (static build, ~60 MB, one time) — or brew install ffmpeg / apt install ffmpeg"
+resolve_ffmpeg() {
+  FFMPEG="" FFPROBE=""
+  if [[ "${DEMO_FFMPEG:-}" == none ]]; then :
+  elif [[ -n "${DEMO_FFMPEG:-}" ]]; then FFMPEG="$DEMO_FFMPEG"; FFPROBE="${DEMO_FFPROBE:-$(dirname "$DEMO_FFMPEG")/ffprobe}"
+  elif command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null; then FFMPEG="$(command -v ffmpeg)"; FFPROBE="$(command -v ffprobe)"
+  elif [[ -x "$FF_DIR/bin/ffmpeg" && -x "$FF_DIR/bin/ffprobe" ]]; then FFMPEG="$FF_DIR/bin/ffmpeg"; FFPROBE="$FF_DIR/bin/ffprobe"
+  fi
+  export FFMPEG FFPROBE
+}
+need_ffmpeg() { [[ -n "$FFMPEG" ]] || { echo "✗ needs ffmpeg + ffprobe — $FF_HINT" >&2; exit 1; }; }
+resolve_ffmpeg
 config_json() { node "$SKILL_DIR/runner/config.mjs" "$SKILL_DIR/runner/config.defaults.json" "$DEMO_HOME/config.json" "$@"; }
 open_file() { if command -v open >/dev/null; then open "$1"; elif command -v xdg-open >/dev/null; then xdg-open "$1" >/dev/null 2>&1; fi; }
 url_of() { node -e 'console.log(require("url").pathToFileURL(process.argv[1]).href)' "$1"; }
@@ -95,7 +111,7 @@ set -- ${ARGS[@]+"${ARGS[@]}"}
 
 case "$CMD" in
   ""|-h|--help)
-    sed -n 3,26p "$0"; exit 0 ;;
+    sed -n 3,27p "$0"; exit 0 ;;
 
   init)
     shift; sync_runner >/dev/null
@@ -156,6 +172,11 @@ case "$CMD" in
         --jq '"#\(.number) \(.title)  [\(.state)]  \(.url)\nhead \(.headRefName) @ \(.headRefOid[:9])  base \(.baseRefName)  merge \(.mergeCommit.oid // "-" | .[:9])\nmerge\t\(.mergeCommit.oid // "")\nfiles:\n\(.files | map("  +\(.additions) -\(.deletions)  \(.path)") | join("\n"))\nbody:\n\(.body)"' >"$TMP/pr" 2>&1) &
       (GIT_TERMINAL_PROMPT=0 git -C "$REPO" fetch -q origin "${DEF#origin/}" 2>/dev/null) &
     fi
+    echo "── tools"
+    if [[ -n "$FFMPEG" ]]; then echo "  ffmpeg  $FFMPEG"
+    else echo "  ffmpeg  MISSING — a take would be a raw .webm (no caption bar, fast-forward, voice, mp4). Ask the user, then: $FF_HINT"; fi
+    if compgen -G "$DEMO_HOME/voice/venv/lib/python*/site-packages/chatterbox" >/dev/null; then echo "  voice   installed ($DEMO_HOME/voice)"
+    else echo "  voice   not installed — the first --voice take installs Chatterbox (~3 GB, minutes). Ask the user first."; fi
     echo "── project $PNAME  (${PFILE:-no project.json — run: record-demo.sh init})  root $PROOT"
     [[ -n "$PFILE" ]] && node -e 'console.log(JSON.stringify(JSON.parse(process.argv[1]).config,null,2))' "$PROJECT_JSON"
     NOTES="$DEMO_HOME/projects/$PNAME/NOTES.md"
@@ -229,11 +250,28 @@ case "$CMD" in
     [[ -t 1 ]] && command -v afplay >/dev/null && afplay "$OUT"
     exit 0 ;;
 
+  setup)
+    # the only place anything is downloaded for post-production — run it after the user said yes
+    shift; [[ "${1:-}" == ffmpeg ]] || { echo "usage: record-demo.sh setup ffmpeg" >&2; exit 1; }
+    echo "▶ Downloading a static ffmpeg + ffprobe (~60 MB, one time) into $FF_DIR …" >&2
+    mkdir -p "$FF_DIR/bin"
+    # its own package.json: npm would otherwise install into $DEMO_HOME/node_modules, which a Playwright reinstall prunes
+    [[ -f "$FF_DIR/package.json" ]] || echo '{ "private": true }' >"$FF_DIR/package.json"
+    (cd "$FF_DIR" && npm install --silent --no-audit --no-fund ffmpeg-static @ffprobe-installer/ffprobe) \
+      || { echo "✗ download failed — install ffmpeg yourself: brew install ffmpeg / apt install ffmpeg" >&2; exit 1; }
+    ln -sf "$(cd "$FF_DIR" && node -p 'require("ffmpeg-static")')" "$FF_DIR/bin/ffmpeg"
+    ln -sf "$(cd "$FF_DIR" && node -p 'require("@ffprobe-installer/ffprobe").path')" "$FF_DIR/bin/ffprobe"
+    "$FF_DIR/bin/ffmpeg" -hide_banner -encoders 2>/dev/null | grep -q libx264 \
+      || { echo "✗ the downloaded ffmpeg has no libx264 — install ffmpeg yourself: brew install ffmpeg / apt install ffmpeg" >&2; exit 1; }
+    DEMO_FFMPEG="" resolve_ffmpeg
+    echo "✓ ffmpeg $("$FFMPEG" -version | head -1 | awk '{print $3}'): $FFMPEG"
+    exit 0 ;;
+
   revoice)
     # re-read a finished take's captions (all, or --line …) with the current voice.* settings; video copied as is
     shift; TAKE="${1:?usage: record-demo.sh revoice <take.mp4> [--line TEXT]… [--say S] [--energy E] [--exaggeration X] [--tries N]}"; shift
     [[ -f "$TAKE" ]] || { echo "✗ Not found: $TAKE" >&2; exit 1; }
-    sync_runner >/dev/null; ensure_voice
+    need_ffmpeg; sync_runner >/dev/null; ensure_voice
     OUT="${TAKE%.mp4}"; OUT="${OUT%-revoiced}-revoiced.mp4"  # re-voicing a re-voiced take updates it in place
     echo "▶ Re-voicing $(basename "$TAKE") with voice = $(config_json voice | tr -d '\n ') ${*:+ + $*}"
     DEMO_VOICE_OPTS="$(config_json voice)" "$VOICE_PY" "$SKILL_DIR/runner/revoice.py" "$TAKE" "$OUT" "$@" || exit 1
@@ -355,7 +393,7 @@ STEM="$DEST_DIR/$(basename "$SPEC" | sed -E 's/\.(ts|json)$//; s/\.spec$//')-$(d
 mkdir -p "$DEST_DIR"
 cp "$WEBM" "$STEM.webm"
 
-if command -v ffmpeg >/dev/null; then
+if [[ -n "$FFMPEG" ]]; then
   # caption bar + speed / cuts / fast-forward + voice → mp4 (h264/aac plays everywhere), sheet, step frames, chapters
   DURS="$(node "$RUN_DIR/timeline.mjs" "$OUT_RAW" "$WEBM" "$STEM" "$SPEED" "$CONFIG")" || echo "✗ post-production failed (see above)" >&2
   read -r DUR RAW_DUR <<<"${DURS:-}"
@@ -369,7 +407,8 @@ if [[ -f "$STEM.mp4" ]]; then
   echo "🎬 video  ${DUR%.*}s from ${RAW_DUR%.*}s raw, ×$SPEED$([[ $VOICE == 1 ]] && echo ', voiced'): $(url_of "$STEM.mp4")"
   echo "🖼  sheet: $(url_of "$STEM-sheet.png")"
 else
-  echo "🎬 video (webm — install ffmpeg for mp4): $(url_of "$STEM.webm")"
+  echo "🎬 video (raw .webm only — no ffmpeg, so no caption bar, fast-forward, voice or mp4): $(url_of "$STEM.webm")"
+  [[ -n "$FFMPEG" ]] || echo "   for the full take: $FF_HINT, then record again"
 fi
 [[ -d "$STEM-shots" ]] && for f in "$STEM-shots"/*.png; do echo "📸 shot:  $(url_of "$f")"; done
 [[ -d "$STEM-steps" ]] && echo "🔎 steps: $(url_of "$STEM-steps") ($(ls "$STEM-steps" | wc -l | tr -d ' ') frames)"

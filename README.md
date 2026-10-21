@@ -42,7 +42,11 @@ ln -s ~/demo-recorder/skills/demo-recorder ~/.claude/skills/demo-recorder
 ### Requirements
 
 - Node.js 18+ and `npm` (Playwright + Chromium are installed into `~/.demo-recorder` on first run)
-- `ffmpeg` (mp4 output, fast-forward, contact sheets) — `brew install ffmpeg` / `apt install ffmpeg`
+- `ffmpeg` + `ffprobe` (mp4, caption bar, fast-forward, voice track, contact sheets): your own
+  (`brew install ffmpeg` / `apt install ffmpeg`), or `record-demo.sh setup ffmpeg`, which downloads a static
+  build (~60 MB, one time) into `~/.demo-recorder/ffmpeg`. Nothing is downloaded unasked. `brief` reports
+  what's missing, and the agent asks first. Without ffmpeg, a take is a raw `.webm` (no caption bar,
+  fast-forward, voice or mp4). `DEMO_FFMPEG=/path` picks a binary.
 - `git`, and the [`gh` CLI](https://cli.github.com) logged in — only for posting to PRs
 - macOS or Linux (importing an existing browser login with `--from` is macOS-only)
 - Voice only: Python 3.10+ — `--voice` installs Chatterbox (PyTorch + ~3 GB of model weights) into `~/.demo-recorder/voice` on first use; Apple Silicon (MPS) or a CUDA GPU makes it fast

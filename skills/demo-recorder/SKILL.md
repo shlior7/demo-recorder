@@ -34,7 +34,18 @@ settings (team file in the repo wins over the personal one), `NOTES.md`, running
 cached worktrees, existing demos with their newest take, and with `--pr` the PR's title, state,
 branch, merge commit, files, body and whether it's in the default branch. Don't re-run those one by
 one (`project`, `servers`, `cat NOTES.md`, `gh pr view`, `git merge-base`); batch other independent
-lookups into one shell call too. None yet → `"$S/record-demo.sh" init` (add `--team` to create the committed variant)
+lookups into one shell call too.
+
+**Missing tools → ask before anything is downloaded.** `brief`'s `── tools` lines say whether ffmpeg
+and the voice engine are there. Never download either unasked. `ffmpeg MISSING` → ask the user before
+the first take (AskUserQuestion), then do what they pick:
+*Download it* (`"$S/record-demo.sh" setup ffmpeg`: static ffmpeg + ffprobe, ~60 MB, one time, into
+`$DEMO_HOME/ffmpeg`) · *I'll install it* (`brew install ffmpeg` / `apt install ffmpeg`, wait for them) ·
+*Skip* (a take is then a raw `.webm`: no caption bar, fast-forward, voice or mp4 — say so).
+`voice not installed` + a voiced take wanted → same: the first `--voice` take installs ~3 GB; ask first.
+`DEMO_FFMPEG=/path/to/ffmpeg` picks a binary, `DEMO_FFMPEG=none` forces the raw-webm path.
+
+None yet → `"$S/record-demo.sh" init` (add `--team` to create the committed variant)
 detects the package manager, dev script and framework port, then **finish it by discovery**:
 
 | key | meaning |

@@ -25,11 +25,12 @@ const run = read('captions.json', {});
 const hud = { position: 'top', size: 'md', theme: 'dark', ...cfg.hud, ...run.hud };
 const accent = run.accent ?? cfg.callout?.color ?? '#f43f5e';
 const captions = run.captions ?? []; // [{ t, text, voice? }] — every caption change, ⏩ markers included
-const ffmpeg = (args) => execFileSync('ffmpeg', ['-loglevel', 'error', '-y', ...args], { stdio: ['ignore', 'ignore', 'inherit'] });
+const FFMPEG = process.env.FFMPEG || 'ffmpeg', FFPROBE = process.env.FFPROBE || 'ffprobe'; // resolved by record-demo.sh
+const ffmpeg = (args) => execFileSync(FFMPEG, ['-loglevel', 'error', '-y', ...args], { stdio: ['ignore', 'ignore', 'inherit'] });
 const jobs = []; // independent ffmpeg runs (sheet, step frames) → in parallel, awaited before exit
-const ffmpegBg = (args) => jobs.push(promisify(execFile)('ffmpeg', ['-loglevel', 'error', '-y', ...args]));
+const ffmpegBg = (args) => jobs.push(promisify(execFile)(FFMPEG, ['-loglevel', 'error', '-y', ...args]));
 const ffprobe = (entries, f) =>
-  execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', entries, '-of', 'csv=p=0', f]).toString().trim();
+  execFileSync(FFPROBE, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', entries, '-of', 'csv=p=0', f]).toString().trim();
 const dur = Number(ffprobe('format=duration', webm));
 const [W, H] = ffprobe('stream=width,height', webm).split(',').map(Number);
 

@@ -61,7 +61,7 @@ BRANCH="$(git branch --show-current)"
 [[ -n "$BRANCH" && -n "$PR" ]] || [[ -z "$PR" ]] || BRANCH="$(gh pr view "$PR" --repo "$NWO" --json headRefName -q .headRefName)"
 [[ -n "$BRANCH" ]] || BRANCH="detached-$(git rev-parse --short HEAD)"
 [[ -n "$PR" || $DRY == 1 ]] || { echo "✗ No PR for branch $BRANCH — pass --pr N" >&2; exit 1; }
-DUR="$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$MP4" 2>/dev/null | cut -d. -f1)"
+DUR="$("${FFPROBE:-ffprobe}" -v error -show_entries format=duration -of csv=p=0 "$MP4" 2>/dev/null | cut -d. -f1)"
 SHOTS=(); [[ -d "$STEM-shots" ]] && SHOTS=("$STEM-shots"/*.png)
 PREFIX="$BRANCH/$NAME"
 SLUG="$(printf 'demo-%s-pr%s' "$(basename "$NWO")" "${PR:-x}" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9-' '-' | cut -c1-64)"
@@ -110,7 +110,7 @@ else
     PAGE_URL="$(tpl "$(cfg share.page.url)" "$PAGE" "$SLUG" "$NWO" "$PR")"
     TAKE_ID="$(date -u +%Y%m%d-%H%M%S)"
     cp "$SKILL_DIR/runner/poster.mjs" "$GH/"
-    ffmpeg -loglevel error -y -ss "$(( ${DUR:-10} * 45 / 100 ))" -i "$MP4" -frames:v 1 "$GH/frame.png"
+    "${FFMPEG:-ffmpeg}" -loglevel error -y -ss "$(( ${DUR:-10} * 45 / 100 ))" -i "$MP4" -frames:v 1 "$GH/frame.png"
     (cd "$DEMO_HOME" && node "$GH/poster.mjs" "$GH/frame.png" "$GH/poster.png" "Play the demo · ${DUR:-?}s")
     PUSH+=("$GH/poster.png" "$PREFIX/poster.png")
     if [[ $DRY == 0 ]]; then

@@ -30,7 +30,7 @@ def ending(f):
 
 
 def probe(take, *args):
-    return subprocess.check_output(["ffprobe", "-v", "error", *args, "-of", "csv=p=0", take]).decode().strip()
+    return subprocess.check_output([os.environ.get("FFPROBE", "ffprobe"), "-v", "error", *args, "-of", "csv=p=0", take]).decode().strip()
 
 
 def main():
@@ -93,7 +93,7 @@ def main():
 
     # keep the take's audio outside the re-read lines (--line); a full revoice replaces all of it
     keep = bool(a.line) and probe(a.take, "-select_streams", "a", "-show_entries", "stream=codec_name") != ""
-    args = ["ffmpeg", "-y", "-v", "error", "-i", a.take]
+    args = [os.environ.get("FFMPEG", "ffmpeg"), "-y", "-v", "error", "-i", a.take]
     graph, mix = [], []
     if keep:
         mute = ",".join(f"volume=0:enable='between(t,{s:.3f},{e:.3f})'" for s, e in spans)
