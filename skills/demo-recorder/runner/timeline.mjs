@@ -124,12 +124,14 @@ async function renderBars(pngs) {
   const light = hud.theme === 'light';
   const edge = hud.position === 'bottom' ? 'top' : 'bottom';
   const font = Math.round(BAR_H * 0.42);
+  const border = hud.border ?? Math.max(2, Math.round(BAR_H / 24)); // the accent line; 0 = none
+  const family = hud.font ?? "-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif";
   for (const [text, file] of pngs) {
     await page.setContent(
       `<body style="margin:0"><div id="bar" style="box-sizing:border-box;width:${W}px;height:${BAR_H}px;display:flex;` +
-        `align-items:center;justify-content:center;padding:0 ${font * 2}px;background:${light ? '#ffffff' : '#0f172a'};` +
-        `color:${light ? '#0f172a' : '#f8fafc'};border-${edge}:${Math.max(2, Math.round(BAR_H / 24))}px solid ${accent};` +
-        `font:600 ${font}px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;letter-spacing:.2px;white-space:nowrap">` +
+        `align-items:center;justify-content:center;padding:0 ${font * 2}px;background:${hud.background ?? (light ? '#ffffff' : '#0f172a')};` +
+        `color:${hud.color ?? (light ? '#0f172a' : '#f8fafc')};border-${edge}:${border}px solid ${accent};` +
+        `font:${hud.weight ?? 600} ${font}px/1 ${family};letter-spacing:.2px;white-space:nowrap;${hud.css ?? ''}">` +
         `<span id="t"></span></div></body>`
     );
     // textContent, not HTML: captions are data. Shrink until one line fits.

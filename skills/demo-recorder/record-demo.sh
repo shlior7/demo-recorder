@@ -5,7 +5,7 @@
 # (default ~/.demo-recorder). Per-project values (URL, start commands, auth, safety rules) live in
 # project.json — see `init`.
 #
-#   record-demo.sh <demo.json|demo.spec.ts> [--project p] [--url u] [--auth name] [--speed 1.3] [--voice|--no-voice] [--headed] [--open] [--no-ffmpeg]
+#   record-demo.sh <demo.json|demo.spec.ts> [--project p] [--url u] [--auth name] [--speed 1.3] [--voice|--no-voice] [--audience dev|exec|pm] [--headed] [--open] [--no-ffmpeg]
 #   record-demo.sh brief [--pr N] [--project p]    # everything to plan a take: project, NOTES, servers, demos, PR
 #   record-demo.sh init [--project p] [--team]     # scaffold project.json (detects dev script + port)
 #   record-demo.sh project [--project p]           # show the resolved project settings
@@ -314,7 +314,7 @@ PROBE=0
 if [[ "$1" == probe ]]; then PROBE=1; SPEC=""
 else SPEC="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"; fi
 shift
-URL="" AUTH="" SPEED=1 HEADED=() OPEN=0 VOICE="" RAW=0
+URL="" AUTH="" SPEED="" HEADED=() OPEN=0 VOICE="" RAW=0 AUDIENCE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --url) URL="$2"; shift 2 ;;
@@ -325,6 +325,7 @@ while [[ $# -gt 0 ]]; do
     --voice) VOICE=1; shift ;;
     --no-voice) VOICE=0; shift ;;
     --no-ffmpeg) RAW=1; shift ;; # the user agreed to a raw .webm take without ffmpeg
+    --audience) AUDIENCE="$2"; shift 2 ;; # dev | exec | pm — a preset of voice, size, motion, pace
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -355,7 +356,13 @@ COLOR="${DEMO_COLOR_SCHEME:-$(pget config.colorScheme)}"
 curl -sk -o /dev/null --max-time 10 "$URL" || { echo "✗ $URL is not reachable — start the app (record-demo.sh up) first." >&2; exit 1; }
 
 sync_runner
+# audience: --audience > the manifest > project.json > config audience — a preset under the explicit settings
+[[ -n "$AUDIENCE" ]] || AUDIENCE="$(mget audience)"
+[[ -n "$AUDIENCE" ]] || AUDIENCE="$(pget config.audience)"
+[[ -z "$AUDIENCE" || "$AUDIENCE" =~ ^(none|dev|exec|pm)$ ]] || { echo "✗ --audience: dev | exec | pm (or none)" >&2; exit 1; }
+export DEMO_AUDIENCE="$AUDIENCE"
 CONFIG="$(config_json)"
+[[ -n "$SPEED" ]] || SPEED="$(config_json speed)"  # the audience's pace unless --speed
 [[ -n "$VOICE" ]] || VOICE="$([[ "$(config_json voice.enabled)" == true ]] && echo 1 || echo 0)"
 if [[ $VOICE == 1 && $PROBE == 0 ]]; then ensure_voice; else VOICE=0; fi
 
@@ -377,7 +384,7 @@ if [[ "$SPEC" == *.json ]]; then
   MANIFEST="$SPEC"; RUN_SPEC="$RUN_DIR/manifest/manifest.spec.ts"
 fi
 
-[[ $PROBE == 1 ]] || echo "▶ Recording $SPEC against $URL (project: $PNAME) …"
+[[ $PROBE == 1 ]] || echo "▶ Recording $SPEC against $URL (project: $PNAME$([[ -n "$AUDIENCE" && "$AUDIENCE" != none ]] && echo ", audience: $AUDIENCE")) …"
 set +e
 (cd "$DEMO_HOME" && \
   DEMO_PROBE_SHOT="$DEMO_HOME/probe/probe.png" DEMO_PROBE_DIR="$DEMO_HOME/probe" \

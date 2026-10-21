@@ -190,6 +190,21 @@ Full reference: header of `runner/manifest.spec.ts`.
 slowType/actAndWait/fastForward/withZoom/callout/clearCallouts/shot/snapshot/forbid/failOn/
 fakeLocalStorage/configure/loc/waitForCaption` (`waitForCaption` = let the caption on screen finish being read/spoken, e.g. before playing media with sound).
 
+**Audience** — ask who the demo is for when it isn't obvious, and pass `--audience` (or put
+`"audience"` in the manifest; `config audience …` to make it the default). It sets the delivery
+(voice energy, caption size, zoom ×, cursor pace, popping callouts, speed) — explicit settings still
+win. **The words are yours: write the captions and callouts in that audience's tone.**
+
+| `--audience` | captions & callouts | delivery the preset sets | motion you add |
+|---|---|---|---|
+| `dev` — dry | what changed and how, technical nouns, zero adjectives: "Retries on 429, backoff 2×" | calm voice, `sm` bar, zoom ×0.85, quick cursor, 1.15× | zoom only the one changed spot |
+| `exec` — flattering | outcome and credit, numbers that matter to the business: "One click saves the team hours a week" | warm voice, `md` bar | zoom the 2–3 outcome moments |
+| `pm` — over the top | the wow, superlatives, customer delight: "Instant answers. Zero waiting!" | rainbow voice, `lg` bar, zoom ×1.25, showy cursor arcs, bouncing callouts | zoom every beat, a callout per beat, a `shot` per highlight |
+
+Look beyond that is all settings too (README → Settings): caption bar `hud.background/color/accent/
+font/weight/border/css`, callouts `callout.color/textColor/font/css` — `config` for every take,
+`look` in project.json or the manifest, or `demo.configure({ hud, callout, motion })` in a spec.
+
 **Writing captions** — fewer, shorter, clearer (the toolkit warns `[caption-lint]` otherwise):
 - One caption per beat, **≤ 8 words**, one idea, verb-first: "Ask the chat", "Send it to the owners".
 - Don't narrate what's obvious on screen, and don't stack two captions where one works — merge

@@ -99,7 +99,7 @@ export const test = base.extend({
     tts?.proc.kill();
     tts = null;
     // the bar is drawn in post — hand it the look this spec ended up with (project/manifest/configure overrides)
-    if (process.env.DEMO_CAPTIONS_FILE) writeFileSync(process.env.DEMO_CAPTIONS_FILE, JSON.stringify({ hud: hudCfg, accent: calloutCfg.color, captions }));
+    if (process.env.DEMO_CAPTIONS_FILE) writeFileSync(process.env.DEMO_CAPTIONS_FILE, JSON.stringify({ hud: hudCfg, accent: hudCfg.accent ?? calloutCfg.color, captions }));
     if (process.env.DEMO_SEGMENTS_FILE) writeFileSync(process.env.DEMO_SEGMENTS_FILE, JSON.stringify(segments));
     if (process.env.DEMO_STEPS_FILE) writeFileSync(process.env.DEMO_STEPS_FILE, JSON.stringify(steps));
     const minutes = (Date.now() - t0) / 60_000;
@@ -120,8 +120,18 @@ type HudConfig = {
   theme: 'dark' | 'light';
   wpm: number; // reading speed for the minimum on-screen time of captions/callouts
   minMs: number; // floor for any caption/callout, however short
+  // colours & type (null = the theme's): the bar/overlay background, text, accent line (null = callout.color),
+  // font family, weight, accent line px (0 = none), and raw CSS appended last — anything else goes there
+  background?: string | null;
+  color?: string | null;
+  accent?: string | null;
+  font?: string | null;
+  weight?: number | string;
+  border?: number | string | null;
+  css?: string;
 };
-type CalloutConfig = { color: string; ring: boolean; inShots: boolean };
+// color = bubble, arrow and ring; textColor/font/css = the bubble's text, family, extra CSS
+type CalloutConfig = { color: string; ring: boolean; inShots: boolean; textColor?: string; font?: string | null; css?: string };
 const userCfg = (() => {
   try {
     return JSON.parse(process.env.DEMO_CONFIG || '{}');
@@ -131,11 +141,16 @@ const userCfg = (() => {
 })();
 let hudCfg: HudConfig = { position: 'top', size: 'md', theme: 'dark', wpm: 180, minMs: 1500, ...userCfg.hud };
 let calloutCfg: CalloutConfig = { color: '#f43f5e', ring: true, inShots: true, ...userCfg.callout };
+// motion (audience presets set it): zoom = × the zoom scale, cursor = × glide time and arc, pop = callouts
+// bounce in and their ring pulses
+type MotionConfig = { zoom: number; cursor: number; pop: boolean };
+let motionCfg: MotionConfig = { zoom: 1, cursor: 1, pop: false, ...userCfg.motion };
 
 /** Per-spec override of the persisted look, e.g. `demo.configure({ hud: { position: 'bottom' } })`. */
-export function configure(o: { hud?: Partial<HudConfig>; callout?: Partial<CalloutConfig> }): void {
+export function configure(o: { hud?: Partial<HudConfig>; callout?: Partial<CalloutConfig>; motion?: Partial<MotionConfig> }): void {
   hudCfg = { ...hudCfg, ...o.hud };
   calloutCfg = { ...calloutCfg, ...o.callout };
+  motionCfg = { ...motionCfg, ...o.motion };
 }
 
 // In-page helper: rects of UI a caption must not cover. Re-installed per call (navigation wipes it).
@@ -361,11 +376,11 @@ async function paint(page: Page, text: string, voice?: string): Promise<void> {
           'left:50%',
           'transform:translateX(-50%)',
           'z-index:2147483647',
-          `background:${light ? 'rgba(255,255,255,.97)' : 'rgba(17,24,39,.94)'}`,
-          `color:${light ? '#111827' : '#fff'}`,
+          `background:${cfg.background ?? (light ? 'rgba(255,255,255,.97)' : 'rgba(17,24,39,.94)')}`,
+          `color:${cfg.color ?? (light ? '#111827' : '#fff')}`,
           `padding:${pad}`,
           `border-radius:${radius}px`,
-          `font:600 ${font}px/1.35 -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif`,
+          `font:${cfg.weight ?? 600} ${font}px/1.35 ${cfg.font ?? "-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"}`,
           'letter-spacing:.2px',
           `box-shadow:0 10px 34px rgba(0,0,0,${light ? '.18' : '.45'})`,
           `border:1px solid ${light ? 'rgba(0,0,0,.08)' : 'rgba(255,255,255,.12)'}`,
@@ -374,6 +389,7 @@ async function paint(page: Page, text: string, voice?: string): Promise<void> {
           'pointer-events:none',
           'transition:opacity .25s ease',
           `opacity:${t ? 1 : 0}`,
+          cfg.css ?? '',
         ].join(';');
         el.textContent = t;
       },
@@ -407,7 +423,7 @@ export async function callout(
   await page.evaluate(PAGE_HELPERS).catch(() => {});
   await page
     .evaluate(
-      ({ id, hudId, r, text, color, ring, replace, gid }) => {
+      ({ id, hudId, r, text, color, ring, replace, gid, look, pop }) => {
         let layer = document.getElementById(id);
         if (!layer) {
           layer = document.createElement('div');
@@ -428,11 +444,12 @@ export async function callout(
           'position:absolute',
           'max-width:300px',
           `background:${color}`,
-          'color:#fff',
-          "font:600 15px/1.35 -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif",
+          `color:${look.textColor ?? '#fff'}`,
+          `font:600 15px/1.35 ${look.font ?? "-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"}`,
           'padding:9px 14px',
           'border-radius:10px',
           'box-shadow:0 8px 24px rgba(0,0,0,.28)',
+          look.css ?? '',
         ].join(';');
         group.appendChild(bubble);
         const w = bubble.offsetWidth;
@@ -511,8 +528,19 @@ export async function callout(
           group.appendChild(o);
         }
         requestAnimationFrame(() => (group.style.opacity = '1'));
+        if (pop) {
+          // motion.pop: the bubble bounces in, the ring keeps pulsing
+          bubble.animate([{ transform: 'scale(.55)', opacity: 0 }, { transform: 'scale(1.1)', opacity: 1, offset: 0.6 }, { transform: 'scale(1)' }], {
+            duration: 460,
+            easing: 'cubic-bezier(.2,.8,.2,1)',
+          });
+          group.querySelector<HTMLElement>('[data-demo-ring]')?.animate([{ boxShadow: `0 0 0 0 ${color}88` }, { boxShadow: `0 0 0 16px ${color}00` }], {
+            duration: 1100,
+            iterations: Infinity,
+          });
+        }
       },
-      { id: CALLOUTS_ID, hudId: HUD_ID, r: box, text, color: calloutCfg.color, ring, replace, gid }
+      { id: CALLOUTS_ID, hudId: HUD_ID, r: box, text, color: calloutCfg.color, ring, replace, gid, look: calloutCfg, pop: !!motionCfg.pop }
     )
     .catch(() => {});
   void followTarget(page, target, box, gid);
@@ -568,8 +596,9 @@ export async function humanMove(page: Page, x: number, y: number): Promise<void>
     mouse = { x, y };
     return;
   }
-  const steps = Math.max(14, Math.min(46, Math.round(dist / 16)));
-  const bow = Math.min(60, dist * 0.14); // perpendicular arc so the path isn't a straight line
+  const k = Number(motionCfg.cursor) || 1;
+  const steps = Math.round(k * Math.max(14, Math.min(46, Math.round(dist / 16))));
+  const bow = k * Math.min(60, dist * 0.14); // perpendicular arc so the path isn't a straight line
   const nx = -(y - fromY) / dist;
   const ny = (x - fromX) / dist;
   for (let i = 1; i <= steps; i++) {
@@ -580,7 +609,7 @@ export async function humanMove(page: Page, x: number, y: number): Promise<void>
     await page.waitForTimeout(9);
   }
   mouse = { x, y };
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(200 * k);
 }
 
 /** Scroll `locator` into view AND out from under any position:fixed/sticky bar — Playwright's
@@ -866,7 +895,7 @@ export async function actAndWait(
 // put their root directly on <html> won't zoom — then skip zoom.
 
 /** Zoom the camera in on a viewport point. Pair with `zoomOut`; prefer `withZoom`. */
-export async function zoomToPoint(page: Page, x: number, y: number, scale = 1.7): Promise<void> {
+export async function zoomToPoint(page: Page, x: number, y: number, scale = 1.7 * (Number(motionCfg.zoom) || 1)): Promise<void> {
   await page
     .evaluate(
       ({ x, y, scale }) => {
@@ -934,7 +963,8 @@ export async function withZoom(
   action: () => Promise<void>,
   opts: { scale?: number; holdMs?: number; margin?: number } = {}
 ): Promise<void> {
-  const { scale = 1.7, holdMs = 500, margin = 24 } = opts;
+  const { holdMs = 500, margin = 24 } = opts;
+  const scale = (opts.scale ?? 1.7) * (Number(motionCfg.zoom) || 1); // motion.zoom (audience) scales any step's own scale too
   await moveTo(page, target);
   const box = await stableBox(page, target);
   const vp = page.viewportSize();
