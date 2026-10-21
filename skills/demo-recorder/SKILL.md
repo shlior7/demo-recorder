@@ -37,13 +37,17 @@ one (`project`, `servers`, `cat NOTES.md`, `gh pr view`, `git merge-base`); batc
 lookups into one shell call too.
 
 **Missing tools → ask before anything is downloaded.** `brief`'s `── tools` lines say whether ffmpeg
-and the voice engine are there. Never download either unasked. `ffmpeg MISSING` → ask the user before
-the first take (AskUserQuestion), then do what they pick:
-*Download it* (`"$S/record-demo.sh" setup ffmpeg`: static ffmpeg + ffprobe, ~60 MB, one time, into
-`$DEMO_HOME/ffmpeg`) · *I'll install it* (`brew install ffmpeg` / `apt install ffmpeg`, wait for them) ·
-*Skip* (a take is then a raw `.webm`: no caption bar, fast-forward, voice or mp4 — say so).
-`voice not installed` + a voiced take wanted → same: the first `--voice` take installs ~3 GB; ask first.
-`DEMO_FFMPEG=/path/to/ffmpeg` picks a binary, `DEMO_FFMPEG=none` forces the raw-webm path.
+and the voice engine are there. Never download either unasked.
+- `ffmpeg MISSING` — **it's required**: tell the user, and ask to get it before the first take
+  (AskUserQuestion): *Download it now* (`"$S/record-demo.sh" setup ffmpeg`: static ffmpeg + ffprobe,
+  ~60 MB, one time, into `$DEMO_HOME/ffmpeg`) · *I'll install it myself* (`brew install ffmpeg` /
+  `apt install ffmpeg` — wait, then re-run `brief`). A take refuses to start without it.
+- Only if they **refuse both**: explain what they lose — a raw `.webm` with no caption bar, no
+  fast-forward (waits play in real time), no voice track, no mp4 (GitHub won't play it inline), no
+  contact sheet, step frames or chapters, and `revoice` won't work — and ask them to approve recording
+  like that. Only after a yes: record with `--no-ffmpeg`.
+- `voice not installed` + a voiced take wanted → ask first: the first `--voice` take installs ~3 GB.
+- `DEMO_FFMPEG=/path/to/ffmpeg` picks a binary.
 
 None yet → `"$S/record-demo.sh" init` (add `--team` to create the committed variant)
 detects the package manager, dev script and framework port, then **finish it by discovery**:

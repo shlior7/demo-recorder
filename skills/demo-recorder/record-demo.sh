@@ -5,7 +5,7 @@
 # (default ~/.demo-recorder). Per-project values (URL, start commands, auth, safety rules) live in
 # project.json — see `init`.
 #
-#   record-demo.sh <demo.json|demo.spec.ts> [--project p] [--url u] [--auth name] [--speed 1.3] [--voice|--no-voice] [--headed] [--open]
+#   record-demo.sh <demo.json|demo.spec.ts> [--project p] [--url u] [--auth name] [--speed 1.3] [--voice|--no-voice] [--headed] [--open] [--no-ffmpeg]
 #   record-demo.sh brief [--pr N] [--project p]    # everything to plan a take: project, NOTES, servers, demos, PR
 #   record-demo.sh init [--project p] [--team]     # scaffold project.json (detects dev script + port)
 #   record-demo.sh project [--project p]           # show the resolved project settings
@@ -174,7 +174,7 @@ case "$CMD" in
     fi
     echo "── tools"
     if [[ -n "$FFMPEG" ]]; then echo "  ffmpeg  $FFMPEG"
-    else echo "  ffmpeg  MISSING — a take would be a raw .webm (no caption bar, fast-forward, voice, mp4). Ask the user, then: $FF_HINT"; fi
+    else echo "  ffmpeg  MISSING (required) — ask the user to get it: $FF_HINT. Only if they refuse: explain a take is then a raw .webm (no caption bar, fast-forward, voice, mp4) and record with --no-ffmpeg once they OK that"; fi
     if compgen -G "$DEMO_HOME/voice/venv/lib/python*/site-packages/chatterbox" >/dev/null; then echo "  voice   installed ($DEMO_HOME/voice)"
     else echo "  voice   not installed — the first --voice take installs Chatterbox (~3 GB, minutes). Ask the user first."; fi
     echo "── project $PNAME  (${PFILE:-no project.json — run: record-demo.sh init})  root $PROOT"
@@ -314,7 +314,7 @@ PROBE=0
 if [[ "$1" == probe ]]; then PROBE=1; SPEC=""
 else SPEC="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"; fi
 shift
-URL="" AUTH="" SPEED=1 HEADED=() OPEN=0 VOICE=""
+URL="" AUTH="" SPEED=1 HEADED=() OPEN=0 VOICE="" RAW=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --url) URL="$2"; shift 2 ;;
@@ -324,10 +324,18 @@ while [[ $# -gt 0 ]]; do
     --open) OPEN=1; shift ;;
     --voice) VOICE=1; shift ;;
     --no-voice) VOICE=0; shift ;;
+    --no-ffmpeg) RAW=1; shift ;; # the user agreed to a raw .webm take without ffmpeg
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
 [[ $PROBE == 1 ]] || [[ -f "$SPEC" ]] || { echo "✗ Not found: $SPEC" >&2; exit 1; }
+# ffmpeg is required: without it there's no caption bar, fast-forward, voice track or mp4. Recording without
+# it takes the user's explicit OK, passed as --no-ffmpeg (or DEMO_FFMPEG=none).
+if [[ $PROBE == 0 && -z "$FFMPEG" && $RAW == 0 && "${DEMO_FFMPEG:-}" != none ]]; then
+  echo "✗ ffmpeg is required — get it: $FF_HINT" >&2
+  echo "  (recording without it gives a raw .webm only — no caption bar, fast-forward, voice or mp4; to do that anyway: --no-ffmpeg)" >&2
+  exit 1
+fi
 resolve_project "$([[ $PROBE == 1 ]] && echo - || echo "$SPEC")"
 
 # precedence: flag > manifest > project.json
@@ -408,7 +416,7 @@ if [[ -f "$STEM.mp4" ]]; then
   echo "🖼  sheet: $(url_of "$STEM-sheet.png")"
 else
   echo "🎬 video (raw .webm only — no ffmpeg, so no caption bar, fast-forward, voice or mp4): $(url_of "$STEM.webm")"
-  [[ -n "$FFMPEG" ]] || echo "   for the full take: $FF_HINT, then record again"
+  [[ -n "$FFMPEG" ]] || echo "   recorded without ffmpeg (--no-ffmpeg) — for the full take: $FF_HINT, then record again"
 fi
 [[ -d "$STEM-shots" ]] && for f in "$STEM-shots"/*.png; do echo "📸 shot:  $(url_of "$f")"; done
 [[ -d "$STEM-steps" ]] && echo "🔎 steps: $(url_of "$STEM-steps") ($(ls "$STEM-steps" | wc -l | tr -d ' ') frames)"
