@@ -42,7 +42,11 @@ ln -s ~/demo-recorder/skills/demo-recorder ~/.claude/skills/demo-recorder
 ### Requirements
 
 - Node.js 18+ and `npm` (Playwright + Chromium are installed into `~/.demo-recorder` on first run)
-- `ffmpeg` (mp4 output, fast-forward, contact sheets) — `brew install ffmpeg` / `apt install ffmpeg`
+- `ffmpeg` + `ffprobe` (**required**: mp4, caption bar, fast-forward, voice track, contact sheets). Use your
+  own (`brew install ffmpeg` / `apt install ffmpeg`), or run `record-demo.sh setup ffmpeg`, which downloads
+  a static build (~60 MB, one time) into `~/.demo-recorder/ffmpeg`. Nothing downloads unasked: `brief`
+  reports it, and the agent asks you first. A take won't start without it unless you pass `--no-ffmpeg`,
+  which records a raw `.webm` only. `DEMO_FFMPEG=/path` picks a binary.
 - `git`, and the [`gh` CLI](https://cli.github.com) logged in — only for posting to PRs
 - macOS or Linux (importing an existing browser login with `--from` is macOS-only)
 - Voice only: Python 3.10+ — `--voice` installs Chatterbox (PyTorch + ~3 GB of model weights) into `~/.demo-recorder/voice` on first use; Apple Silicon (MPS) or a CUDA GPU makes it fast
@@ -195,11 +199,16 @@ on another machine are kept. Recordings of private work should go to a host with
 | `hud.position` | `top` (a bar above the page, default) · `bottom` (a bar below it) · `overlay` (floating on the page) · `off` |
 | `hud.size`, `hud.theme` | `sm`/`md`/`lg`, `dark`/`light` |
 | `hud.wpm`, `hud.minMs` | reading speed and floor for how long every caption/callout stays up |
+| `hud.background`, `hud.color`, `hud.accent`, `hud.font`, `hud.weight`, `hud.border`, `hud.css` | the caption bar's colours and type: background, text, the accent line (default = `callout.color`), font family, weight, line px (`0` = none), and raw CSS appended last for anything else (`text-transform:uppercase`, gradients, shadows) |
 | `voice.enabled` | `true` = always narrate (same as passing `--voice`; `--no-voice` overrides) |
 | `voice.energy` | `calm` · `warm` · `upbeat` (default) · `rainbow` (max excitement) |
 | `voice.exaggeration`, `voice.cfg`, `voice.temperature` | fine-tune the level: emotion (0.5 ≈ neutral), pacing (lower = livelier), variation (lower = steadier, clearer) |
 | `voice.ref` | path to a 10–30 s `.wav` of a voice to clone (empty = Chatterbox's built-in voice) |
 | `callout.color`, `callout.ring`, `callout.inShots` | colour, ring around the target, keep callouts in stills |
+| `callout.textColor`, `callout.font`, `callout.css` | the callout bubble's text colour, font family, raw CSS |
+| `audience` | `none` (default) · `dev` (dry) · `exec` (flattering) · `pm` (over the top): a preset of voice energy, caption size, motion and pace under your own settings. Also `--audience`, a manifest's or project.json's `"audience"` |
+| `motion.zoom`, `motion.cursor`, `motion.pop` | × every zoom's scale, × cursor glide time and arc, callouts bounce in with a pulsing ring |
+| `speed` | default pace of a take (`--speed` wins) |
 | `share.pr`, `share.jira` | `always` · `ask` · `never` |
 | `share.video` | `attach` · `page` · `link` |
 | `share.page.deploy` / `.url` / `.pull`, `share.assetsBranch` | see above |

@@ -1,15 +1,27 @@
 {
+  "audience": "none",
+  "speed": 1,
   "hud": {
     "position": "top",
     "size": "md",
     "theme": "dark",
     "wpm": 180,
-    "minMs": 1500
+    "minMs": 1500,
+    "background": null,
+    "color": null,
+    "accent": null,
+    "font": null,
+    "weight": 600,
+    "border": null,
+    "css": ""
   },
   "callout": {
     "color": "#f43f5e",
     "ring": true,
-    "inShots": true
+    "inShots": true,
+    "textColor": "#fff",
+    "font": null,
+    "css": ""
   },
   "voice": {
     "enabled": false,
@@ -29,5 +41,10 @@
       "url": "",
       "pull": ""
     }
+  },
+  "motion": {
+    "zoom": 1,
+    "cursor": 1,
+    "pop": false
   }
 }

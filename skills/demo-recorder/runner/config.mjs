@@ -32,11 +32,23 @@ const ALLOWED = {
   'callout.inShots': ['true', 'false'],
   'voice.enabled': ['true', 'false'],
   'voice.energy': ['calm', 'warm', 'upbeat', 'rainbow'],
+  audience: ['none', 'dev', 'exec', 'pm'],
+  'motion.pop': ['true', 'false'],
+};
+
+// audience → a preset under the user's own settings (anything set explicitly still wins). The caption
+// TONE per audience is the agent's job (SKILL.md); this sets the delivery: voice, size, motion, pace.
+const AUDIENCE = {
+  dev: { speed: 1.15, hud: { size: 'sm' }, voice: { energy: 'calm' }, motion: { zoom: 0.85, cursor: 0.8, pop: false } }, // dry
+  exec: { speed: 1, hud: { size: 'md' }, voice: { energy: 'warm' }, motion: { zoom: 1, cursor: 1, pop: false } }, // flattering
+  pm: { speed: 1, hud: { size: 'lg' }, voice: { energy: 'rainbow' }, motion: { zoom: 1.25, cursor: 1.2, pop: true } }, // over the top
 };
 
 const defaults = read(defaultsFile);
 const user = read(userFile);
-const merged = merge(defaults, user);
+// $DEMO_AUDIENCE: this run's audience (--audience, the manifest or project.json) over the saved one
+const audience = process.env.DEMO_AUDIENCE || user.audience || defaults.audience;
+const merged = { ...merge(merge(defaults, AUDIENCE[audience] ?? {}), user), audience };
 
 if (!key) console.log(JSON.stringify(merged, null, 2));
 else if (value === undefined) {

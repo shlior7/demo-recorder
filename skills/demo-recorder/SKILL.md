@@ -34,7 +34,22 @@ settings (team file in the repo wins over the personal one), `NOTES.md`, running
 cached worktrees, existing demos with their newest take, and with `--pr` the PR's title, state,
 branch, merge commit, files, body and whether it's in the default branch. Don't re-run those one by
 one (`project`, `servers`, `cat NOTES.md`, `gh pr view`, `git merge-base`); batch other independent
-lookups into one shell call too. None yet → `"$S/record-demo.sh" init` (add `--team` to create the committed variant)
+lookups into one shell call too.
+
+**Missing tools → ask before anything is downloaded.** `brief`'s `── tools` lines say whether ffmpeg
+and the voice engine are there. Never download either unasked.
+- `ffmpeg MISSING` — **it's required**: tell the user, and ask to get it before the first take
+  (AskUserQuestion): *Download it now* (`"$S/record-demo.sh" setup ffmpeg`: static ffmpeg + ffprobe,
+  ~60 MB, one time, into `$DEMO_HOME/ffmpeg`) · *I'll install it myself* (`brew install ffmpeg` /
+  `apt install ffmpeg` — wait, then re-run `brief`). A take refuses to start without it.
+- Only if they **refuse both**: explain what they lose — a raw `.webm` with no caption bar, no
+  fast-forward (waits play in real time), no voice track, no mp4 (GitHub won't play it inline), no
+  contact sheet, step frames or chapters, and `revoice` won't work — and ask them to approve recording
+  like that. Only after a yes: record with `--no-ffmpeg`.
+- `voice not installed` + a voiced take wanted → ask first: the first `--voice` take installs ~3 GB.
+- `DEMO_FFMPEG=/path/to/ffmpeg` picks a binary.
+
+None yet → `"$S/record-demo.sh" init` (add `--team` to create the committed variant)
 detects the package manager, dev script and framework port, then **finish it by discovery**:
 
 | key | meaning |
@@ -174,6 +189,21 @@ Full reference: header of `runner/manifest.spec.ts`.
 `import { test, expect, demo } from 'demo-recorder'` — same toolkit: `demo.narrate/hud/click/tap/
 slowType/actAndWait/fastForward/withZoom/callout/clearCallouts/shot/snapshot/forbid/failOn/
 fakeLocalStorage/configure/loc/waitForCaption` (`waitForCaption` = let the caption on screen finish being read/spoken, e.g. before playing media with sound).
+
+**Audience** — ask who the demo is for when it isn't obvious, and pass `--audience` (or put
+`"audience"` in the manifest; `config audience …` to make it the default). It sets the delivery
+(voice energy, caption size, zoom ×, cursor pace, popping callouts, speed) — explicit settings still
+win. **The words are yours: write the captions and callouts in that audience's tone.**
+
+| `--audience` | captions & callouts | delivery the preset sets | motion you add |
+|---|---|---|---|
+| `dev` — dry | what changed and how, technical nouns, zero adjectives: "Retries on 429, backoff 2×" | calm voice, `sm` bar, zoom ×0.85, quick cursor, 1.15× | zoom only the one changed spot |
+| `exec` — flattering | outcome and credit, numbers that matter to the business: "One click saves the team hours a week" | warm voice, `md` bar | zoom the 2–3 outcome moments |
+| `pm` — over the top | the wow, superlatives, customer delight: "Instant answers. Zero waiting!" | rainbow voice, `lg` bar, zoom ×1.25, showy cursor arcs, bouncing callouts | zoom every beat, a callout per beat, a `shot` per highlight |
+
+Look beyond that is all settings too (README → Settings): caption bar `hud.background/color/accent/
+font/weight/border/css`, callouts `callout.color/textColor/font/css` — `config` for every take,
+`look` in project.json or the manifest, or `demo.configure({ hud, callout, motion })` in a spec.
 
 **Writing captions** — fewer, shorter, clearer (the toolkit warns `[caption-lint]` otherwise):
 - One caption per beat, **≤ 8 words**, one idea, verb-first: "Ask the chat", "Send it to the owners".
