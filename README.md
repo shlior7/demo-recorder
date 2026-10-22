@@ -49,6 +49,7 @@ ln -s ~/demo-recorder/skills/demo-recorder ~/.claude/skills/demo-recorder
   which records a raw `.webm` only. `DEMO_FFMPEG=/path` picks a binary.
 - `git`, and the [`gh` CLI](https://cli.github.com) logged in — only for posting to PRs
 - macOS or Linux (importing an existing browser login with `--from` is macOS-only)
+- Presentation mode only: Node.js 22+ — `record-demo.sh setup hyperframes` installs [HyperFrames](https://github.com/heygen-com/hyperframes) (~130 MB + a headless Chrome) into `~/.demo-recorder/hyperframes`
 - Voice only: Python 3.10+ — `--voice` installs Chatterbox (PyTorch + ~3 GB of model weights) into `~/.demo-recorder/voice` on first use; Apple Silicon (MPS) or a CUDA GPU makes it fast
 
 ## Try it in 1 minute
@@ -149,11 +150,14 @@ its transcript.
                                   …-steps/*.png             one frame per caption/callout — check these
                                   …-sheet.png               3×3 contact sheet
                                   …-chapters.json           every caption, callout, fast-forward and still, in final-video seconds
+                                  …-presentation.mp4        with --present / `present`: the take re-cut as a presentation
+                                  …-present/                its HyperFrames project, to polish and re-render
 ```
 
 `-chapters.json` is for anything that plays the take — a player, the PR page, a preview inside
 another recording: `[{ "t": 4.07, "end": 4.39, "kind": "fastForward", "text": "…" }, …]` with
-`kind` one of `caption` · `callout` · `fastForward` (has `end`) · `still` · `cut`.
+`kind` one of `caption` · `callout` · `fastForward` (has `end`) · `still` · `cut` · `frame` (the caption
+bar: `bar` px high, `at` top or bottom).
 
 ## Sharing to the PR
 
@@ -240,6 +244,28 @@ what changed), and the seconds spent synthesising are cut from the video. Symbol
 sensibly (`·` and `—` become pauses, `→` "to"), and each line ends like a finished statement, not
 on a rising "open" note (it's read with a short sentence after it, which is then cut). Chatterbox runs locally; its output carries
 Resemble AI's inaudible watermark.
+
+## Presentation mode
+
+```bash
+$R/record-demo.sh setup hyperframes                       # once: HyperFrames + a headless Chrome (~130 MB)
+$R/record-demo.sh <demo.json> --voice --audience exec --present   # the take, then its presentation cut
+$R/record-demo.sh present <take.mp4>                      # or re-cut any finished take (~1 min)
+```
+
+For a meeting or a launch rather than a PR: [HyperFrames](https://github.com/heygen-com/hyperframes)
+re-cuts the take as a 1920×1080 presentation. The first caption becomes the title card (`Name · tagline` →
+title + subtitle). Each later caption gets a heading slide, then its stretch of the recording in a
+browser-window card, with the caption bar cropped off and the card zoomed to where the app actually is.
+The callouts become badges beside it, and together they make a highlights slide. The last caption is the
+end card. Slides slide in over each other, and the take's own voice plays with its footage, so voice the
+take first. The accent colour is the take's (`hud.accent`, else `callout.color`).
+
+It writes `<take>-presentation.mp4` and the HyperFrames project `<take>-present/` (one `index.html` +
+`assets/`). Edit that with the `/hyperframes` agent skills (`npx skills add heygen-com/hyperframes`) for
+punch-ins, other transitions or a brand look, then re-render with
+`~/.demo-recorder/hyperframes/node_modules/.bin/hyperframes render .` inside it. The plugin runs HyperFrames
+with its telemetry off.
 
 ## Security notes
 

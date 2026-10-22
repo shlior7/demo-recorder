@@ -5,7 +5,7 @@
 # (default ~/.demo-recorder). Per-project values (URL, start commands, auth, safety rules) live in
 # project.json — see `init`.
 #
-#   record-demo.sh <demo.json|demo.spec.ts> [--project p] [--url u] [--auth name] [--speed 1.3] [--voice|--no-voice] [--audience dev|exec|pm] [--headed] [--open] [--no-ffmpeg]
+#   record-demo.sh <demo.json|demo.spec.ts> [--project p] [--url u] [--auth name] [--speed 1.3] [--voice|--no-voice] [--audience dev|exec|pm] [--headed] [--open] [--no-ffmpeg] [--present]
 #   record-demo.sh brief [--pr N] [--project p]    # everything to plan a take: project, NOTES, servers, demos, PR
 #   record-demo.sh init [--project p] [--team]     # scaffold project.json (detects dev script + port)
 #   record-demo.sh project [--project p]           # show the resolved project settings
@@ -19,6 +19,8 @@
 #   record-demo.sh config [key [value]]            # global settings (hud.*, callout.*, voice.*, share.*)
 #   record-demo.sh voice ["Some caption"]          # install Chatterbox (once) and read a line with voice.* settings
 #   record-demo.sh setup ffmpeg                    # download a static ffmpeg + ffprobe into $DEMO_HOME (~60 MB) — ask first
+#   record-demo.sh setup hyperframes               # install HyperFrames into $DEMO_HOME (~130 MB + Chrome) for `present` — ask first
+#   record-demo.sh present <take.mp4>              # re-cut a take as a presentation (title, slides, framed footage) → -presentation.mp4
 #   record-demo.sh revoice <take.mp4> [--line T] [--energy E] [--say S] [--tries N]  # re-read captions, video untouched
 #   record-demo.sh share <video.mp4> --repo <worktree> [--pr N] [--video attach|page|link]
 #
@@ -71,6 +73,22 @@ resolve_ffmpeg() {
   fi
   export FFMPEG FFPROBE
 }
+# `present` renders with HyperFrames (Node ≥ 22), pinned and installed by `setup hyperframes` — never unasked
+HF_DIR="$DEMO_HOME/hyperframes" HF_VERSION=0.8.143
+HF="$HF_DIR/node_modules/.bin/hyperframes"
+hf() { HYPERFRAMES_NO_TELEMETRY=1 DO_NOT_TRACK=1 PATH="$(dirname "${FFMPEG:-ffmpeg}"):$PATH" "$HF" "$@"; }
+present() { # <take.mp4> → <stem>-present/ (HyperFrames project) + <stem>-presentation.mp4
+  local take="$1" stem="${1%.mp4}" t0=$SECONDS
+  [[ -x "$HF" ]] || { echo "✗ presentation mode needs HyperFrames — record-demo.sh setup hyperframes (~130 MB + a headless Chrome, one time)" >&2; return 1; }
+  [[ -f "$stem-chapters.json" ]] || { echo "✗ $stem-chapters.json not found — present needs a take made with ffmpeg" >&2; return 1; }
+  rm -rf "$stem-present"
+  read -r LEN SCENES < <(node "$SKILL_DIR/runner/present.mjs" "$take" "$stem-present" "$(config_json)") || return 1
+  echo "▶ Presentation: $SCENES scenes, ${LEN%.*}s — checking and rendering with HyperFrames …" >&2
+  (cd "$stem-present" && hf check . 2>&1 | grep -E "error\(s\)" | head -1 >&2 && hf render . -o "$stem-presentation.mp4" --quiet >render.log 2>&1) \
+    || { tail -20 "$stem-present/render.log" >&2; echo "✗ HyperFrames render failed (log: $stem-present/render.log)" >&2; return 1; }
+  echo "🎞  presentation ${LEN%.*}s ($((SECONDS - t0))s to make): $(url_of "$stem-presentation.mp4")"
+  echo "   project to polish with the /hyperframes skills: $stem-present"
+}
 need_ffmpeg() { [[ -n "$FFMPEG" ]] || { echo "✗ needs ffmpeg + ffprobe — $FF_HINT" >&2; exit 1; }; }
 resolve_ffmpeg
 config_json() { node "$SKILL_DIR/runner/config.mjs" "$SKILL_DIR/runner/config.defaults.json" "$DEMO_HOME/config.json" "$@"; }
@@ -111,7 +129,7 @@ set -- ${ARGS[@]+"${ARGS[@]}"}
 
 case "$CMD" in
   ""|-h|--help)
-    sed -n 3,27p "$0"; exit 0 ;;
+    sed -n 3,29p "$0"; exit 0 ;;
 
   init)
     shift; sync_runner >/dev/null
@@ -177,6 +195,8 @@ case "$CMD" in
     else echo "  ffmpeg  MISSING (required) — ask the user to get it: $FF_HINT. Only if they refuse: explain a take is then a raw .webm (no caption bar, fast-forward, voice, mp4) and record with --no-ffmpeg once they OK that"; fi
     if compgen -G "$DEMO_HOME/voice/venv/lib/python*/site-packages/chatterbox" >/dev/null; then echo "  voice   installed ($DEMO_HOME/voice)"
     else echo "  voice   not installed — the first --voice take installs Chatterbox (~3 GB, minutes). Ask the user first."; fi
+    if [[ -x "$HF" ]]; then echo "  present HyperFrames $HF_VERSION ($HF_DIR)"
+    else echo "  present not installed (optional) — presentation mode needs: record-demo.sh setup hyperframes (~130 MB + a headless Chrome). Ask the user first."; fi
     echo "── project $PNAME  (${PFILE:-no project.json — run: record-demo.sh init})  root $PROOT"
     [[ -n "$PFILE" ]] && node -e 'console.log(JSON.stringify(JSON.parse(process.argv[1]).config,null,2))' "$PROJECT_JSON"
     NOTES="$DEMO_HOME/projects/$PNAME/NOTES.md"
@@ -252,7 +272,17 @@ case "$CMD" in
 
   setup)
     # the only place anything is downloaded for post-production — run it after the user said yes
-    shift; [[ "${1:-}" == ffmpeg ]] || { echo "usage: record-demo.sh setup ffmpeg" >&2; exit 1; }
+    shift
+    if [[ "${1:-}" == hyperframes ]]; then
+      [[ "$(node -p 'process.versions.node.split(".")[0]')" -ge 22 ]] || { echo "✗ HyperFrames needs Node 22+ (this is $(node -v))" >&2; exit 1; }
+      echo "▶ Installing HyperFrames $HF_VERSION (~130 MB) + its headless Chrome into $HF_DIR …" >&2
+      mkdir -p "$HF_DIR"; [[ -f "$HF_DIR/package.json" ]] || echo '{ "private": true }' >"$HF_DIR/package.json"
+      (cd "$HF_DIR" && npm install --silent --no-audit --no-fund "hyperframes@$HF_VERSION") && hf browser ensure >/dev/null \
+        || { echo "✗ HyperFrames install failed" >&2; exit 1; }
+      echo "✓ HyperFrames $(hf --version): $HF"
+      exit 0
+    fi
+    [[ "${1:-}" == ffmpeg ]] || { echo "usage: record-demo.sh setup ffmpeg|hyperframes" >&2; exit 1; }
     echo "▶ Downloading a static ffmpeg + ffprobe (~60 MB, one time) into $FF_DIR …" >&2
     mkdir -p "$FF_DIR/bin"
     # its own package.json: npm would otherwise install into $DEMO_HOME/node_modules, which a Playwright reinstall prunes
@@ -277,6 +307,12 @@ case "$CMD" in
     DEMO_VOICE_OPTS="$(config_json voice)" "$VOICE_PY" "$SKILL_DIR/runner/revoice.py" "$TAKE" "$OUT" "$@" || exit 1
     echo "🎬 $(url_of "$OUT")"
     exit 0 ;;
+
+  present)
+    shift; TAKE="${1:?usage: record-demo.sh present <take.mp4>}"
+    [[ -f "$TAKE" ]] || { echo "✗ Not found: $TAKE" >&2; exit 1; }
+    need_ffmpeg; sync_runner >/dev/null
+    present "$(cd "$(dirname "$TAKE")" && pwd)/$(basename "$TAKE")"; exit $? ;;
 
   share)
     shift; exec bash "$SKILL_DIR/share.sh" "$@" ;;
@@ -314,7 +350,7 @@ PROBE=0
 if [[ "$1" == probe ]]; then PROBE=1; SPEC=""
 else SPEC="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"; fi
 shift
-URL="" AUTH="" SPEED="" HEADED=() OPEN=0 VOICE="" RAW=0 AUDIENCE=""
+URL="" AUTH="" SPEED="" HEADED=() OPEN=0 VOICE="" RAW=0 AUDIENCE="" PRESENT=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --url) URL="$2"; shift 2 ;;
@@ -325,6 +361,7 @@ while [[ $# -gt 0 ]]; do
     --voice) VOICE=1; shift ;;
     --no-voice) VOICE=0; shift ;;
     --no-ffmpeg) RAW=1; shift ;; # the user agreed to a raw .webm take without ffmpeg
+    --present) PRESENT=1; shift ;; # also re-cut the take as a presentation (HyperFrames)
     --audience) AUDIENCE="$2"; shift 2 ;; # dev | exec | pm — a preset of voice, size, motion, pace
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
@@ -428,7 +465,8 @@ fi
 [[ -d "$STEM-shots" ]] && for f in "$STEM-shots"/*.png; do echo "📸 shot:  $(url_of "$f")"; done
 [[ -d "$STEM-steps" ]] && echo "🔎 steps: $(url_of "$STEM-steps") ($(ls "$STEM-steps" | wc -l | tr -d ' ') frames)"
 [[ -f "$STEM-chapters.json" ]] && echo "📑 chapters: $(url_of "$STEM-chapters.json") ($(grep -c '"kind"' "$STEM-chapters.json") entries, final-video seconds)"
-[[ $OPEN == 1 ]] && { open_file "$STEM.mp4" || open_file "$STEM.webm"; }
+[[ $PRESENT == 1 && -f "$STEM.mp4" ]] && { present "$STEM.mp4" || true; }
+[[ $OPEN == 1 ]] && { open_file "$STEM-presentation.mp4" 2>/dev/null || open_file "$STEM.mp4" || open_file "$STEM.webm"; }
 
 [[ $STATUS -eq 0 ]] || echo "⚠ Spec exited $STATUS — the video may stop early. Check the log above."
 exit $STATUS
