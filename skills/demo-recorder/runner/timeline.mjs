@@ -95,6 +95,7 @@ const steps = read('steps.json');
 // ── chapters: final-video seconds of every beat ──
 const sec = (t) => Number(out(t).toFixed(2));
 const chapters = [
+  ...(bar ? [{ t: 0, kind: 'frame', text: '', bar: BAR_H, at: hud.position }] : []), // the burned-in caption bar, for `present` to crop
   ...steps.map((st) =>
     st.text.startsWith('↳') ? { t: sec(st.t), kind: 'callout', text: st.text.slice(2) } : { t: sec(st.t), kind: 'caption', text: st.text, ...(st.say !== undefined && { say: st.say }), ...(st.voice !== undefined && { voice: st.voice }) }
   ),

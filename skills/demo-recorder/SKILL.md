@@ -47,6 +47,8 @@ and the voice engine are there. Never download either unasked.
   contact sheet, step frames or chapters, and `revoice` won't work — and ask them to approve recording
   like that. Only after a yes: record with `--no-ffmpeg`.
 - `voice not installed` + a voiced take wanted → ask first: the first `--voice` take installs ~3 GB.
+- `present not installed` + a presentation wanted → ask first: `"$S/record-demo.sh" setup hyperframes`
+  installs HyperFrames (~130 MB + a headless Chrome, Node 22+) into `$DEMO_HOME/hyperframes`.
 - `DEMO_FFMPEG=/path/to/ffmpeg` picks a binary.
 
 None yet → `"$S/record-demo.sh" init` (add `--team` to create the committed variant)
@@ -201,6 +203,17 @@ win. **The words are yours: write the captions and callouts in that audience's t
 | `exec` — flattering | outcome and credit, numbers that matter to the business: "One click saves the team hours a week" | warm voice, `md` bar | zoom the 2–3 outcome moments |
 | `pm` — over the top | the wow, superlatives, customer delight: "Instant answers. Zero waiting!" | rainbow voice, `lg` bar, zoom ×1.25, showy cursor arcs, bouncing callouts | zoom every beat, a callout per beat, a `shot` per highlight |
 
+**Presentation mode** — for managers, a meeting, a launch or "slides", offer a presentation cut as well
+(it's an extra file, the take stays as is): `--present` on the take, or `"$S/record-demo.sh" present <take.mp4>`
+after it (~1 min). HyperFrames re-cuts the take: a title card from the first caption (`Name · tagline`
+splits into title + subtitle), then per caption a heading slide and that stretch of the recording in a
+browser-window card (caption bar cropped off, zoomed to where the app is) with its callouts as badges,
+a highlights slide listing the callouts, and the last caption as the end card. The take's voice plays in
+sync, so voice it first (`--voice`). Write captions as headlines and callouts as outcomes, and they read
+well on slides. It writes `<take>-presentation.mp4` and the HyperFrames project `<take>-present/`. For
+more (punch-ins, other transitions, a brand look), edit that project with the `/hyperframes` skills
+when they're installed, then re-render with `cd <take>-present && "$DEMO_HOME"/hyperframes/node_modules/.bin/hyperframes render .`.
+
 Look beyond that is all settings too (README → Settings): caption bar `hud.background/color/accent/
 font/weight/border/css`, callouts `callout.color/textColor/font/css` — `config` for every take,
 `look` in project.json or the manifest, or `demo.configure({ hud, callout, motion })` in a spec.
@@ -301,6 +314,7 @@ The user asks for a change to a take they've seen → change only that, fastest 
 | one line sounds wrong ("more energy on the last line", "it ends like a question", "say X instead") | `record-demo.sh revoice <take.mp4> --line "<caption words>" [--energy rainbow] [--exaggeration 0.85] [--say "…"] [--tries 8]` | seconds |
 | the whole voice (other energy, a cloned `ref`, a silent take that should talk) | `config voice.<key> …`, then `record-demo.sh revoice <take.mp4> [--tries 8]` | ~1 min |
 | what's on screen (a step, a caption's text, a zoom, a callout) | edit the manifest/spec, re-record | minutes |
+| "make it a presentation" / "more polished, for managers" | `record-demo.sh present <take.mp4>` (after a `revoice`, present the `-revoiced` take) | ~1 min |
 
 `revoice` copies the video stream untouched and lays the new line(s) in at the caption's moment; with
 `--line` the rest of the audio is kept as is. It writes `<take>-revoiced.mp4` + its own `-chapters.json`
