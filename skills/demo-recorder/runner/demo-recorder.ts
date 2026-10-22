@@ -740,6 +740,10 @@ export async function shot(
   const { target, pad = 24, highlight = !!target, fullPage = false } = opts;
   const file = join(dir, `${String(++shotCount).padStart(2, '0')}-${name.replace(/[^\w-]+/g, '-')}.png`);
   const start = (Date.now() - t0) / 1000;
+  // The raw video's clock runs a frame or two behind Date.now() - t0, so whatever changes right at
+  // `start` (ring on, cursor hidden) lands just BEFORE the cut and flashes for a frame. Change nothing
+  // until well inside it; the wait is cut too.
+  await page.waitForTimeout(200);
   const toggle = (hide: boolean) =>
     page
       .evaluate(
