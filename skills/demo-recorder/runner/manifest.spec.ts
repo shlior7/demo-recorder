@@ -52,7 +52,7 @@ async function run(page: Page, steps: Json[]): Promise<void> {
       else if (s.tap) await demo.tap(page, loc(page, s.tap));
       else if (s.type) await demo.slowType(page, loc(page, s.type), s.text ?? '', s.delay);
       else if (s.press) await page.keyboard.press(s.press);
-      else if (s.wait !== undefined) await page.waitForTimeout(s.wait);
+      else if (s.wait !== undefined) await (demo.DRY_RUN ? undefined : page.waitForTimeout(s.wait));
       else if (s.waitFor) {
         const target = loc(page, s.waitFor), timeout = s.timeout ?? 30_000;
         const wait = () => (s.state === 'hidden' ? expect(target).toBeHidden({ timeout }) : expect(target).toBeVisible({ timeout }));

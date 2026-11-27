@@ -49,7 +49,8 @@ and the voice engine are there. Never download either unasked.
 - `voice not installed` + a voiced take wanted → ask first: the first `--voice` take installs ~3 GB.
 - `present not installed` + a presentation wanted → ask first: `"$S/record-demo.sh" setup hyperframes`
   installs HyperFrames (~130 MB + a headless Chrome, Node 22+) into `$DEMO_HOME/hyperframes`.
-- `DEMO_FFMPEG=/path/to/ffmpeg` picks a binary.
+- `DEMO_FFMPEG=/path/to/ffmpeg` picks a binary. `DEMO_CHROMIUM=/path/to/chrome` uses an installed
+  Chrome/Chromium instead of Playwright's download (sandboxed/cloud VMs whose network blocks it).
 
 None yet → `"$S/record-demo.sh" init` (add `--team` to create the committed variant)
 detects the package manager, dev script and framework port, then **finish it by discovery**:
@@ -68,6 +69,7 @@ detects the package manager, dev script and framework port, then **finish it by 
 | `localStorage` | key-prefix → value, to pre-dismiss onboarding tours / cookie banners |
 | `look` | per-project look override (`{ "hud": { "position": "bottom" } }`) |
 | `notes` | short facts; longer prose goes in `NOTES.md` |
+| `publish` | shell command that uploads/registers a finished take where the team keeps videos — run from the repo root by `--publish` only, with `DEMO_VIDEO` `DEMO_WEBM` `DEMO_TITLE` `DEMO_SHOTS_DIR` `DEMO_CHAPTERS` `DEMO_PROJECT_NAME` in env |
 
 Every demo of the project inherits `forbid`, `failOn`, `localStorage`, `look`, `baseUrl`, `auth`,
 `viewport` automatically. Read `NOTES.md` too. Update both whenever you learn something.
@@ -127,6 +129,11 @@ git diff "$B"...HEAD -- '*.tsx' '*.jsx' '*.vue' '*.svelte' '*.html' '*.css'
   repo's `seed*`/`fixtures` scripts into an **isolated** store, never the user's.
 - **Keep the stack you started running across takes** in this conversation — a re-take reuses it.
   Stop it when the user is done or switches branch, not after every take.
+- **Warm it before the take**: hit the pages and the first slow request once (dev-server compile,
+  a cold worker or queue consumer) before recording, so the video doesn't open on a cold start.
+- **The repo already records demos with its own e2e harness** (its fixtures, seeded accounts, mock
+  modes)? Its `NOTES.md` says how; follow it instead of re-building the stack in `start[]`, and keep
+  only repo-specific steps there — everything generic stays in this skill.
 - **Write flows**: check what a submit triggers beyond the DB (grep the diff for `slack`, `notify`,
   `webhook`, `mail`) and switch it off in your isolated stack (env vars, settings).
 - Never record against production unless the user explicitly says so. Leave the target worktree
@@ -188,7 +195,7 @@ Locators (`LOC`): `"Text"` | `{ role, name, exact }` | `{ testId }` | `{ text }`
 Full reference: header of `runner/manifest.spec.ts`.
 
 **Spec** (`.spec.ts`) when you need real logic (loops, branching, computed values):
-`import { test, expect, demo } from 'demo-recorder'` — same toolkit: `demo.narrate/hud/click/tap/
+`import { test, expect, demo } from 'demo-recorder'` — same toolkit: `demo.narrate/hud/click/clickIfShown/tap/
 slowType/actAndWait/fastForward/withZoom/callout/clearCallouts/shot/snapshot/forbid/failOn/
 fakeLocalStorage/configure/loc/waitForCaption` (`waitForCaption` = let the caption on screen finish being read/spoken, e.g. before playing media with sound).
 
@@ -246,6 +253,8 @@ Baked-in lessons (don't relearn):
 - Waits > ~2 s go in `waitFor`/`actAndWait`/`fastForward` → played 8× faster with a ⏩ caption. Never
   pad with fixed sleeps to "wait for" a backend. `failOn` makes waits die in seconds on error UI.
 - `type` replaces existing text and caps typing at ~3.5 s; `tap` dispatches for animated elements.
+- A control only some paths show → `"optional": true` (manifest) / `demo.clickIfShown` (spec), never
+  `isVisible()` then `click()` — it can close between the two.
 - `shot` = clean still (no cursor/caption bar; callouts kept unless `callout.inShots` is false), cropped
   to the target + padding, grown to include callout bubbles; its capture moment is cut from the video.
 - One-time popups → `localStorage` prefixes (find keys in the app source or DevTools), not clicks.
@@ -281,6 +290,11 @@ Serve the terminal in the browser with [ttyd](https://github.com/tsl0922/ttyd) a
 ```bash
 "$S/record-demo.sh" $DEMO_HOME/projects/<p>/demos/<flow>.json [--speed 1.2] [--voice] [--headed] [--open]
 ```
+
+**Dry-run first** while writing or fixing a demo: `--dry-run` runs every step with no video, no
+post-production and no voice — pauses, glides and typing instant, 4 s action timeout — so a broken
+locator fails in seconds and names the step. Waits on the app (`waitFor`, `actAndWait`) stay real.
+Film only once it passes.
 
 An explicit "record …" request means **a new take** — mention a recent existing take if useful,
 never hand it back instead.
@@ -345,6 +359,10 @@ until its ending falls (an "open", rising end is Chatterbox's usual flaw), keepi
   mode re-uses one slug per PR (choosing `page` is the standing OK to redeploy *that* slug) and
   remembers the PR comment so later takes edit it. GitHub strips `target=_blank` — say
   "cmd/ctrl-click opens a new tab". Attach videos must be < 10 MB.
+- **The project's own publish step** (project.json `publish` — a CDN upload, an internal gallery):
+  add `--publish` to the take **only when the user asked to publish it**; without the flag the take
+  stays local and the script prints that a publish step exists. A failed take is never published.
+  Hand back whatever the command printed (its URL) next to the local `file://` path.
 - **Jira/issue tracker** (`share.jira`): find candidate keys (`[A-Z][A-Z0-9]+-\d+`) in branch / PR
   title / commits and **confirm each exists** with the tracker tool (`ADR-016`, `UTF-8` look like keys).
   Post the "Jira comment" block `share` printed (links only — never base64 a video through a tool).
