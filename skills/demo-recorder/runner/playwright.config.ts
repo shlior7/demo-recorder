@@ -17,10 +17,13 @@ export default defineConfig({
     baseURL: process.env.DEMO_BASE_URL,
     storageState: process.env.DEMO_STORAGE_STATE || undefined,
     ignoreHTTPSErrors: true,
-    actionTimeout: 15_000, // a bad selector fails fast instead of stalling the take
+    // a bad selector fails fast instead of stalling the take — in seconds on a dry run
+    actionTimeout: process.env.DEMO_DRY_RUN === '1' ? 4_000 : 15_000,
     // Wide desktop viewport so the app records roomy, not the cramped 1280 default; video 1:1.
     viewport: size,
     video: process.env.DEMO_NO_VIDEO ? 'off' : { mode: 'on', size },
+    // DEMO_CHROMIUM=/path: a preinstalled Chrome/Chromium instead of Playwright's download (sandboxed VMs)
+    launchOptions: process.env.DEMO_CHROMIUM ? { executablePath: process.env.DEMO_CHROMIUM } : {},
     colorScheme: (process.env.DEMO_COLOR_SCHEME as 'light' | 'dark' | undefined) ?? 'light',
   },
 });

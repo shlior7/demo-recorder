@@ -178,6 +178,15 @@ let captionShownAt = 0;
 let captionNeedMs = 0;
 let captionCount = 0;
 const SPEED = Number(process.env.DEMO_SPEED) || 1;
+// `record-demo.sh --dry-run`: check a demo's logic without filming it — no video, no post-production,
+// every on-camera pause / glide / typed character instant, short action timeout. A broken locator fails
+// in seconds instead of after a full take. Waits on the app itself (waitFor, actAndWait) stay real.
+export const DRY_RUN = process.env.DEMO_DRY_RUN === '1';
+
+/** The one way the toolkit pauses on camera: skipped in a dry run. */
+async function wait(page: Page, ms: number): Promise<void> {
+  if (!DRY_RUN && ms > 0) await page.waitForTimeout(ms);
+}
 
 /** How long `text` must be visible to be read: base + words at hud.wpm, clamped to [minMs, 7s],
  *  scaled by --speed (a 1.5× video needs 1.5× the real time). */
@@ -190,7 +199,7 @@ export function readMs(text: string): number {
 /** Wait until the current caption has had its reading time. */
 async function letCaptionBeRead(page: Page): Promise<void> {
   const left = captionNeedMs - (Date.now() - captionShownAt);
-  if (lastCaption && left > 0) await page.waitForTimeout(left);
+  if (lastCaption && left > 0) await wait(page, left);
 }
 
 /** Cut [start, now] out of the final video. The caption on screen loses that time, so its
@@ -304,7 +313,7 @@ export async function installCursor(page: Page): Promise<void> {
 export async function startRecording(page: Page, hydrateMs = 1200): Promise<void> {
   // capped: apps that poll or hold a websocket never reach networkidle
   await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
-  await page.waitForTimeout(hydrateMs);
+  await wait(page, hydrateMs);
   await installCursor(page);
   // First call: cut the blank/loading lead-in so the video opens on the rendered app.
   if (!steps.length && !segments.length) segments.push({ start: 0, end: (Date.now() - t0) / 1000, factor: 1000 });
@@ -544,7 +553,7 @@ export async function callout(
     )
     .catch(() => {});
   void followTarget(page, target, box, gid);
-  await page.waitForTimeout(holdMs);
+  await wait(page, holdMs);
   if (!keep) await clearCallouts(page);
 }
 
@@ -584,7 +593,7 @@ export async function clearCallouts(page: Page): Promise<void> {
  *  reading time (readMs) regardless — the next action may already start while it's being read. */
 export async function narrate(page: Page, text: string, holdMs = 1200, opts: { voice?: LineVoice } = {}): Promise<void> {
   await hud(page, text, opts);
-  await page.waitForTimeout(holdMs);
+  await wait(page, holdMs);
 }
 
 /** Move the mouse along a curved, eased path (human-like) from its current spot to (x, y). */
@@ -592,7 +601,8 @@ export async function humanMove(page: Page, x: number, y: number): Promise<void>
   const fromX = mouse.x;
   const fromY = mouse.y;
   const dist = Math.hypot(x - fromX, y - fromY);
-  if (dist < 2) {
+  if (dist < 2 || DRY_RUN) {
+    if (dist >= 2) await page.mouse.move(x, y);
     mouse = { x, y };
     return;
   }
@@ -606,10 +616,10 @@ export async function humanMove(page: Page, x: number, y: number): Promise<void>
     const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // easeInOutQuad
     const arc = Math.sin(t * Math.PI) * bow;
     await page.mouse.move(fromX + (x - fromX) * ease + nx * arc, fromY + (y - fromY) * ease + ny * arc);
-    await page.waitForTimeout(9);
+    await wait(page, 9);
   }
   mouse = { x, y };
-  await page.waitForTimeout(200 * k);
+  await wait(page, 200 * k);
 }
 
 /** Scroll `locator` into view AND out from under any position:fixed/sticky bar — Playwright's
@@ -617,7 +627,7 @@ export async function humanMove(page: Page, x: number, y: number): Promise<void>
  *  extra when the target is already unobscured (no jitter), or while zoomed (scrolling would wreck it). */
 async function reveal(page: Page, locator: Locator): Promise<void> {
   await locator.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
-  await page.waitForTimeout(280); // let smooth-scroll settle before reading coordinates
+  await wait(page, 280); // let smooth-scroll settle before reading coordinates
   const scrolled = await locator
     .evaluate(
       (el, own) => {
@@ -638,7 +648,7 @@ async function reveal(page: Page, locator: Locator): Promise<void> {
       [HUD_ID, CURSOR_ID, CALLOUTS_ID]
     )
     .catch(() => false);
-  if (scrolled) await page.waitForTimeout(280);
+  if (scrolled) await wait(page, 280);
 }
 
 /** Glide the cursor to a locator's center. Scrolls the target into view FIRST so the page settles
@@ -679,7 +689,7 @@ async function watchFailures(page: Page, done: () => boolean): Promise<never> {
         throw new Error(`demo.failOn: error UI appeared — ${text || l.toString()}`);
       }
     }
-    await page.waitForTimeout(500).catch(() => {});
+    await page.waitForTimeout(500).catch(() => {}); // a real poll interval, dry run or not
   }
   return new Promise<never>(() => {});
 }
@@ -699,7 +709,7 @@ export async function click(page: Page, locator: Locator): Promise<void> {
   await assertAllowed(locator);
   await moveTo(page, locator);
   await locator.click();
-  await page.waitForTimeout(250);
+  await wait(page, 250);
 }
 
 /** Glide, then dispatch a click straight to the handler — for elements that animate or reflow so
@@ -708,7 +718,7 @@ export async function tap(page: Page, locator: Locator): Promise<void> {
   await assertAllowed(locator);
   await moveTo(page, locator);
   await locator.dispatchEvent('click');
-  await page.waitForTimeout(250);
+  await wait(page, 250);
 }
 
 /** Glide to a field, select existing text, then type visibly one char at a time — new text
@@ -719,9 +729,29 @@ export async function slowType(page: Page, field: Locator, text: string, delayMs
   await moveTo(page, field);
   await field.click();
   await field.press('ControlOrMeta+a');
-  await page.waitForTimeout(150);
-  await field.pressSequentially(text, { delay: delayMs });
-  await page.waitForTimeout(500);
+  await wait(page, 150);
+  if (DRY_RUN) await field.fill(text);
+  else await field.pressSequentially(text, { delay: delayMs });
+  await wait(page, 500);
+}
+
+/** Click a control only some paths show (a confirm a single-select picker skips, a "what's new"
+ *  toast). Visible-then-click is a race — the control can close between the check and the click — so
+ *  one that is gone by the click counts as "not shown", never as a failure. Same as a manifest step
+ *  with `"optional": true`, for specs. */
+export async function clickIfShown(page: Page, locator: Locator, appearMs = 1500): Promise<boolean> {
+  if (!(await locator.isVisible({ timeout: appearMs }).catch(() => false))) return false;
+  await assertAllowed(locator);
+  await moveTo(page, locator);
+  const clicked = await locator.click({ timeout: 1500 }).then(
+    () => true,
+    async (error) => {
+      if (await locator.isVisible().catch(() => false)) throw error;
+      return false;
+    }
+  );
+  await wait(page, 250);
+  return clicked;
 }
 
 /** Save a clean still for the PR/ticket/Slack post: no cursor, no caption. Whole viewport, or —
@@ -743,7 +773,7 @@ export async function shot(
   // The raw video's clock runs a frame or two behind Date.now() - t0, so whatever changes right at
   // `start` (ring on, cursor hidden) lands just BEFORE the cut and flashes for a frame. Change nothing
   // until well inside it; the wait is cut too.
-  await page.waitForTimeout(200);
+  await wait(page, 200);
   const toggle = (hide: boolean) =>
     page
       .evaluate(
@@ -885,7 +915,7 @@ export async function actAndWait(
   );
   console.log(`[actAndWait] ${caption} — ${((Date.now() - startedAt) / 1000).toFixed(1)}s${timedOut ? ' (timed out)' : ''}`);
   await hud(page, `${caption} — done ✓`);
-  await page.waitForTimeout(holdMs); // let the result's fade-in finish
+  await wait(page, holdMs); // let the result's fade-in finish
 }
 
 // ── Camera zoom (for pivotal moments) ───────────────────────────────────────
@@ -916,7 +946,7 @@ export async function zoomToPoint(page: Page, x: number, y: number, scale = 1.7 
       { x, y, scale }
     )
     .catch(() => {});
-  await page.waitForTimeout(460);
+  await wait(page, 460);
 }
 
 /** Reverse `zoomToPoint`. */
@@ -927,7 +957,7 @@ export async function zoomOut(page: Page): Promise<void> {
       ((document.querySelector('[data-demo-zoom-root]') as HTMLElement) ?? document.body).style.transform = '';
     })
     .catch(() => {});
-  await page.waitForTimeout(460);
+  await wait(page, 460);
   await page
     .evaluate(() => {
       const el = (document.querySelector('[data-demo-zoom-root]') as HTMLElement) ?? document.body;
@@ -945,7 +975,7 @@ async function stableBox(page: Page, target: Locator, timeoutMs = 3000) {
   let prev = await target.boundingBox().catch(() => null);
   const end = Date.now() + timeoutMs;
   while (Date.now() < end) {
-    await page.waitForTimeout(250);
+    await wait(page, 250);
     const cur = await target.boundingBox().catch(() => null);
     const same = cur && prev && ['x', 'y', 'width', 'height'].every((k) => Math.abs(cur[k] - prev[k]) < 1);
     if (same) return cur;
@@ -995,12 +1025,13 @@ export async function withZoom(
   try {
     await action();
   } finally {
-    await page.waitForTimeout(holdMs);
+    await wait(page, holdMs);
     await zoomOut(page);
   }
 }
 
 export const demo = {
+  DRY_RUN,
   resetCursor,
   installCursor,
   startRecording,
@@ -1011,6 +1042,7 @@ export const demo = {
   moveTo,
   parkCursor,
   click,
+  clickIfShown,
   tap,
   slowType,
   actAndWait,

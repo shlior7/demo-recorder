@@ -5,7 +5,7 @@
 # (default ~/.demo-recorder). Per-project values (URL, start commands, auth, safety rules) live in
 # project.json — see `init`.
 #
-#   record-demo.sh <demo.json|demo.spec.ts> [--project p] [--url u] [--auth name] [--speed 1.3] [--voice|--no-voice] [--audience dev|exec|pm] [--headed] [--open] [--no-ffmpeg] [--present]
+#   record-demo.sh <demo.json|demo.spec.ts> [--project p] [--url u] [--auth name] [--speed 1.3] [--voice|--no-voice] [--audience dev|exec|pm] [--headed] [--open] [--no-ffmpeg] [--present] [--dry-run] [--publish]
 #   record-demo.sh brief [--pr N] [--project p]    # everything to plan a take: project, NOTES, servers, demos, PR
 #   record-demo.sh init [--project p] [--team]     # scaffold project.json (detects dev script + port)
 #   record-demo.sh project [--project p]           # show the resolved project settings
@@ -48,7 +48,7 @@ sync_runner() {
     rm -f "$DEMO_HOME/.chromium-ok"
   fi
   # ~0.5 s even when nothing's missing → only after a (re)install
-  [[ -f "$DEMO_HOME/.chromium-ok" ]] || { (cd "$DEMO_HOME" && npx playwright install chromium >/dev/null) && touch "$DEMO_HOME/.chromium-ok"; }
+  [[ -n "${DEMO_CHROMIUM:-}" || -f "$DEMO_HOME/.chromium-ok" ]] || { (cd "$DEMO_HOME" && npx playwright install chromium >/dev/null) && touch "$DEMO_HOME/.chromium-ok"; }
 }
 # Chatterbox TTS in its own venv under $DEMO_HOME (torch + ~3 GB of weights, fetched on first use).
 ensure_voice() {
@@ -350,7 +350,7 @@ PROBE=0
 if [[ "$1" == probe ]]; then PROBE=1; SPEC=""
 else SPEC="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"; fi
 shift
-URL="" AUTH="" SPEED="" HEADED=() OPEN=0 VOICE="" RAW=0 AUDIENCE="" PRESENT=0
+URL="" AUTH="" SPEED="" HEADED=() OPEN=0 VOICE="" RAW=0 AUDIENCE="" PRESENT=0 DRY=0 PUBLISH=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --url) URL="$2"; shift 2 ;;
@@ -363,10 +363,14 @@ while [[ $# -gt 0 ]]; do
     --no-ffmpeg) RAW=1; shift ;; # the user agreed to a raw .webm take without ffmpeg
     --present) PRESENT=1; shift ;; # also re-cut the take as a presentation (HyperFrames)
     --audience) AUDIENCE="$2"; shift 2 ;; # dev | exec | pm — a preset of voice, size, motion, pace
+    --dry-run) DRY=1; shift ;; # check the demo's logic: no video, no post-production, pauses instant
+    --publish) PUBLISH=1; shift ;; # run project.json `publish` on the finished take — only when the user asked
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
 [[ $PROBE == 1 ]] || [[ -f "$SPEC" ]] || { echo "✗ Not found: $SPEC" >&2; exit 1; }
+[[ $DRY == 0 || $PUBLISH == 0 ]] || { echo "✗ --dry-run films nothing, so there is nothing to --publish" >&2; exit 1; }
+[[ $DRY == 0 ]] || RAW=1 # a dry run needs no ffmpeg
 # ffmpeg is required: without it there's no caption bar, fast-forward, voice track or mp4. Recording without
 # it takes the user's explicit OK, passed as --no-ffmpeg (or DEMO_FFMPEG=none).
 if [[ $PROBE == 0 && -z "$FFMPEG" && $RAW == 0 && "${DEMO_FFMPEG:-}" != none ]]; then
@@ -401,7 +405,7 @@ export DEMO_AUDIENCE="$AUDIENCE"
 CONFIG="$(config_json)"
 [[ -n "$SPEED" ]] || SPEED="$(config_json speed)"  # the audience's pace unless --speed
 [[ -n "$VOICE" ]] || VOICE="$([[ "$(config_json voice.enabled)" == true ]] && echo 1 || echo 0)"
-if [[ $VOICE == 1 && $PROBE == 0 ]]; then ensure_voice; else VOICE=0; fi
+if [[ $VOICE == 1 && $PROBE == 0 && $DRY == 0 ]]; then ensure_voice; else VOICE=0; fi
 
 # Each take gets its own dir: a snapshot of the runner + the raw output (out/). Never shared, never
 # reused, removed on exit — so two takes at once (two sessions, two plugin versions) can't clobber
@@ -421,9 +425,11 @@ if [[ "$SPEC" == *.json ]]; then
   MANIFEST="$SPEC"; RUN_SPEC="$RUN_DIR/manifest/manifest.spec.ts"
 fi
 
-[[ $PROBE == 1 ]] || echo "▶ Recording $SPEC against $URL (project: $PNAME$([[ -n "$AUDIENCE" && "$AUDIENCE" != none ]] && echo ", audience: $AUDIENCE")) …"
+[[ $PROBE == 1 ]] || echo "▶ $([[ $DRY == 1 ]] && echo "Dry run of" || echo Recording) $SPEC against $URL (project: $PNAME$([[ -n "$AUDIENCE" && "$AUDIENCE" != none ]] && echo ", audience: $AUDIENCE")) …"
+DRY_ENV=()
+[[ $DRY == 1 ]] && DRY_ENV=(DEMO_DRY_RUN=1 DEMO_NO_VIDEO=1)
 set +e
-(cd "$DEMO_HOME" && \
+(cd "$DEMO_HOME" && env ${DRY_ENV[@]+"${DRY_ENV[@]}"} \
   DEMO_PROBE_SHOT="$DEMO_HOME/probe/probe.png" DEMO_PROBE_DIR="$DEMO_HOME/probe" \
   DEMO_SEGMENTS_FILE="$OUT_RAW/segments.json" DEMO_STEPS_FILE="$OUT_RAW/steps.json" DEMO_CAPTIONS_FILE="$OUT_RAW/captions.json" \
   DEMO_SHOTS_DIR="$OUT_RAW/shots" DEMO_CONFIG="$CONFIG" DEMO_VOICE="${VOICE/0/}" DEMO_VOICE_PY="$VOICE_PY" \
@@ -435,6 +441,11 @@ set +e
 STATUS=$?
 set -e
 if [[ $PROBE == 1 ]]; then echo "✓ Screenshot: $DEMO_HOME/probe/probe.png"; exit $STATUS; fi
+if [[ $DRY == 1 ]]; then
+  [[ $STATUS -eq 0 ]] && echo "✓ Dry run passed — every step ran; record it for real without --dry-run" \
+    || echo "✗ Dry run failed (exit $STATUS) — the failing step and locator are in the log above" >&2
+  exit $STATUS
+fi
 
 # The video is written on context close even when asserts fail — keep going and report the status.
 WEBM="$(find "$OUT_RAW" -name '*.webm' -type f 2>/dev/null | head -1)"
@@ -469,4 +480,21 @@ fi
 [[ $OPEN == 1 ]] && { open_file "$STEM-presentation.mp4" 2>/dev/null || open_file "$STEM.mp4" || open_file "$STEM.webm"; }
 
 [[ $STATUS -eq 0 ]] || echo "⚠ Spec exited $STATUS — the video may stop early. Check the log above."
+
+# project.json `publish`: the project's own upload/register step (a CDN, an internal gallery, a ticket),
+# so the plugin never needs to know where a team keeps its videos. It runs only with --publish (the
+# user asked to publish this take), from the project root, with the take's files in env.
+PUBLISH_CMD="$(pget config.publish)"
+if [[ $PUBLISH == 1 ]]; then
+  [[ -n "$PUBLISH_CMD" ]] || { echo "✗ --publish: no \"publish\" command in ${PFILE:-project.json}" >&2; exit 1; }
+  [[ $STATUS -eq 0 ]] || { echo "✗ not publishing a take whose spec failed (exit $STATUS)" >&2; exit "$STATUS"; }
+  TITLE="$(mget title)"; [[ -n "$TITLE" ]] || TITLE="$(basename "$STEM" | sed -E 's/-[0-9]{8}-[0-9]{6}$//')"
+  VIDEO="$STEM.mp4"; [[ -f "$VIDEO" ]] || VIDEO="$STEM.webm"
+  echo "▶ publish: $PUBLISH_CMD"
+  (cd "$PROOT" && DEMO_VIDEO="$VIDEO" DEMO_WEBM="$STEM.webm" DEMO_TITLE="$TITLE" DEMO_SHOTS_DIR="$STEM-shots" \
+    DEMO_CHAPTERS="$STEM-chapters.json" DEMO_PROJECT_NAME="$PNAME" bash -c "$PUBLISH_CMD") \
+    || { echo "✗ publish failed — the take itself is kept: $(url_of "$VIDEO")" >&2; exit 1; }
+elif [[ -n "$PUBLISH_CMD" ]]; then
+  echo "   publish step configured (project.json) — add --publish only when the user asks to publish this take"
+fi
 exit $STATUS

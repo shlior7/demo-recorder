@@ -98,6 +98,41 @@ Everything that differs between apps. Created by `init`; lives in
 | `failOn` | error UI that makes waits fail fast (`{ "text": "/something went wrong/i" }`) |
 | `localStorage` | key-prefix → value, to pre-dismiss onboarding tours and cookie banners |
 | `look` | per-project caption/callout style |
+| `publish` | your own upload/register step for a finished take (a CDN, an internal gallery) — runs from the repo root only with `--publish`, never on a failed take; env: `DEMO_VIDEO`, `DEMO_WEBM`, `DEMO_TITLE`, `DEMO_SHOTS_DIR`, `DEMO_CHAPTERS`, `DEMO_PROJECT_NAME` |
+
+```json
+"publish": "node scripts/upload-video.mjs \"$DEMO_VIDEO\" \"$DEMO_TITLE\""
+```
+
+**Dry runs** — `record-demo.sh <demo> --dry-run` runs every step with no video, post-production or
+voice, pauses and typing instant and a 4 s action timeout: a broken locator fails in seconds. Use it
+while writing a demo; film once it passes.
+
+### Sharing it with your team (and cloud sessions)
+
+Commit `<repo>/.demo-recorder/project.json` + `NOTES.md`, and declare the plugin in the repo's
+`.claude/settings.json` so everyone who trusts the folder is offered it:
+
+```json
+{
+  "extraKnownMarketplaces": { "demo-recorder": { "source": { "source": "github", "repo": "shlior7/demo-recorder" } } },
+  "enabledPlugins": { "demo-recorder@demo-recorder": true }
+}
+```
+
+Cloud sessions (claude.ai/code) don't add marketplaces a repo declares: add the plugin to your
+claude.ai account at [claude.ai/customize/plugins](https://claude.ai/customize/plugins) (add the
+`shlior7/demo-recorder` marketplace there), then start a new session. The cloud VM still needs ffmpeg,
+and its network allowlist may not reach Playwright's browser download — point the runner at the
+VM's own Chrome. In the environment's setup script:
+
+```bash
+command -v ffmpeg >/dev/null || (apt-get update && apt-get install -y ffmpeg)
+echo 'export DEMO_CHROMIUM="${CHROME_PATH:-/usr/bin/google-chrome}"' >> ~/.bashrc
+```
+
+`DEMO_CHROMIUM=/path/to/chrome` works anywhere: it skips Playwright's Chromium download and launches
+that binary instead.
 
 ## Demos — JSON manifests
 
