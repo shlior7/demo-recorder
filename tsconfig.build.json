@@ -1,0 +1,17 @@
+{
+  // Builds the importable toolkit (package.json "main") from the runner's source — the file record-demo.sh
+  // itself runs. dist/ is committed: a git dependency installs without a build step. Rebuild with
+  // `npm run build`; runner/check/package-import.sh fails when dist/ is stale.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "declaration": true,
+    "noCheck": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "outDir": "dist",
+    "rootDir": "skills/demo-recorder/runner"
+  },
+  "files": ["skills/demo-recorder/runner/demo-recorder.ts"]
+}

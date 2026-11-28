@@ -108,6 +108,32 @@ Everything that differs between apps. Created by `init`; lives in
 voice, pauses and typing instant and a 4 s action timeout: a broken locator fails in seconds. Use it
 while writing a demo; film once it passes.
 
+### The toolkit in your own Playwright specs
+
+A repo that already films demos with its own e2e harness (its fixtures, seeded data, mock modes) can
+import the same toolkit instead of keeping a copy. Pin a release tag:
+
+```json
+"devDependencies": { "demo-recorder": "github:shlior7/demo-recorder#v0.9.0" }
+```
+
+```ts
+import { demo } from 'demo-recorder'; // @playwright/test is a peer dependency: your own copy is used
+
+demo.configure({ hud: { hold: 1500, readingTime: false }, motion: { typeCapMs: 0, pace: 1 } }); // pin your timings
+await demo.startRecording(page);
+await demo.narrate(page, 'Open the editor');
+await demo.click(page, page.getByTestId('editor-open'));
+```
+
+Outside `record-demo.sh` captions are drawn **on the page** (`hud.position: overlay`), since nothing
+adds the bar afterwards. For the bar, fast-forward and an mp4 instead: `demo.configure({ hud: { position:
+'top' } })`, `demo.begin()` when the page opens, `demo.saveTimeline(dir)` at the end, save the
+`.webm` into `dir`, then `record-demo.sh finish <dir>`. Timing options: `hud.hold` (narrate's default
+pause), `hud.readingTime` (false = a caption never waits for the previous one's reading time),
+`motion.typeCapMs` (0 = no cap on typing time), `motion.pace` (× every on-camera pause; 0 = instant).
+`dist/` is built from `skills/demo-recorder/runner/demo-recorder.ts` (`npm run build`) and committed.
+
 ### Sharing it with your team (and cloud sessions)
 
 Commit `<repo>/.demo-recorder/project.json` + `NOTES.md`, and declare the plugin in the repo's
