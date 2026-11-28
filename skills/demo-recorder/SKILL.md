@@ -133,7 +133,12 @@ git diff "$B"...HEAD -- '*.tsx' '*.jsx' '*.vue' '*.svelte' '*.html' '*.css'
   a cold worker or queue consumer) before recording, so the video doesn't open on a cold start.
 - **The repo already records demos with its own e2e harness** (its fixtures, seeded accounts, mock
   modes)? Its `NOTES.md` says how; follow it instead of re-building the stack in `start[]`, and keep
-  only repo-specific steps there — everything generic stays in this skill.
+  only repo-specific steps there — everything generic stays in this skill. Its specs import this
+  toolkit as a package (`"demo-recorder": "github:shlior7/demo-recorder#v<version>"`, README → "The
+  toolkit in your own Playwright specs"): captions draw on the page there, timings pin through
+  `demo.configure` (`hud.hold`, `hud.readingTime`, `motion.typeCapMs`, `motion.pace`), and
+  `record-demo.sh finish <dir>` post-produces its `.webm` when `demo.saveTimeline(dir)` wrote the timeline.
+  Changing `runner/demo-recorder.ts` → `npm run build` and commit `dist/` (`check/package-import.sh`).
 - **Write flows**: check what a submit triggers beyond the DB (grep the diff for `slack`, `notify`,
   `webhook`, `mail`) and switch it off in your isolated stack (env vars, settings).
 - Never record against production unless the user explicitly says so. Leave the target worktree

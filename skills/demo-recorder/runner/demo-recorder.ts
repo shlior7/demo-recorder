@@ -76,20 +76,41 @@ export function loc(page: Page, l: Json): Locator {
 const toPattern = (f: string | RegExp) =>
   f instanceof RegExp ? f : re(f) instanceof RegExp ? re(f) : new RegExp(f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
 
+/** Start a take's timeline: call right after the page (and so its video) is created. The `test`
+ *  fixture does this for you; a repo driving its own Playwright fixtures calls it itself, then
+ *  `saveTimeline(dir)` at the end and `record-demo.sh finish <dir>` for the caption bar, fast-forward
+ *  and mp4 — or keeps the default in-page captions and needs neither. */
+export function begin(): void {
+  t0 = Date.now();
+  segments.length = 0;
+  steps.length = 0;
+  captions.length = 0;
+  lastCaption = '';
+  lastStepAt = null;
+  captionNeedMs = 0;
+  captionCount = 0;
+  shotCount = 0;
+  forbidden = [];
+  failWatch = [];
+}
+
+/** Write the take's timeline for post-production: `captions.json` (+ the look), `segments.json`
+ *  (fast-forwards and cuts), `steps.json` (one verify-frame per caption/callout). Pass a directory
+ *  (the one holding the take's .webm, for `record-demo.sh finish <dir>`) or explicit file paths. */
+export function saveTimeline(to: string | { captions?: string; segments?: string; steps?: string }): void {
+  const f = typeof to === 'string' ? { captions: join(to, 'captions.json'), segments: join(to, 'segments.json'), steps: join(to, 'steps.json') } : to;
+  if (typeof to === 'string') mkdirSync(to, { recursive: true });
+  // the bar is drawn in post — hand it the look this spec ended up with (project/manifest/configure overrides)
+  if (f.captions) writeFileSync(f.captions, JSON.stringify({ hud: hudCfg, accent: hudCfg.accent ?? calloutCfg.color, captions }));
+  if (f.segments) writeFileSync(f.segments, JSON.stringify(segments));
+  if (f.steps) writeFileSync(f.steps, JSON.stringify(steps));
+}
+
 /** Playwright `test`, plus fast-forward bookkeeping and project defaults. Use this one, not
  *  '@playwright/test'. */
 export const test = base.extend({
   page: async ({ page }, use) => {
-    t0 = Date.now();
-    segments.length = 0;
-    steps.length = 0;
-    captions.length = 0;
-    lastCaption = '';
-    captionNeedMs = 0;
-    captionCount = 0;
-    shotCount = 0;
-    forbidden = [];
-    failWatch = [];
+    begin();
     if (project.look) configure(project.look);
     if (project.forbid?.length) forbid(project.forbid);
     if (project.failOn?.length) failOn(...project.failOn.map((l: Json) => loc(page, l)));
@@ -98,10 +119,11 @@ export const test = base.extend({
     await letCaptionBeRead(page).catch(() => {}); // the last caption (and its voice) gets its full time on screen
     tts?.proc.kill();
     tts = null;
-    // the bar is drawn in post — hand it the look this spec ended up with (project/manifest/configure overrides)
-    if (process.env.DEMO_CAPTIONS_FILE) writeFileSync(process.env.DEMO_CAPTIONS_FILE, JSON.stringify({ hud: hudCfg, accent: hudCfg.accent ?? calloutCfg.color, captions }));
-    if (process.env.DEMO_SEGMENTS_FILE) writeFileSync(process.env.DEMO_SEGMENTS_FILE, JSON.stringify(segments));
-    if (process.env.DEMO_STEPS_FILE) writeFileSync(process.env.DEMO_STEPS_FILE, JSON.stringify(steps));
+    saveTimeline({
+      captions: process.env.DEMO_CAPTIONS_FILE,
+      segments: process.env.DEMO_SEGMENTS_FILE,
+      steps: process.env.DEMO_STEPS_FILE,
+    });
     const minutes = (Date.now() - t0) / 60_000;
     if (captionCount / Math.max(minutes, 0.5) > 12)
       console.warn(`[caption-lint] ${captionCount} captions in ${minutes.toFixed(1)} min — combine beats; let callouts point at details`);
@@ -120,6 +142,8 @@ type HudConfig = {
   theme: 'dark' | 'light';
   wpm: number; // reading speed for the minimum on-screen time of captions/callouts
   minMs: number; // floor for any caption/callout, however short
+  readingTime: boolean; // false = a new caption never waits for the previous one's reading time (timing is the spec's)
+  hold: number; // narrate()'s default pause after setting a caption, ms
   // colours & type (null = the theme's): the bar/overlay background, text, accent line (null = callout.color),
   // font family, weight, accent line px (0 = none), and raw CSS appended last — anything else goes there
   background?: string | null;
@@ -139,12 +163,16 @@ const userCfg = (() => {
     return {};
   }
 })();
-let hudCfg: HudConfig = { position: 'top', size: 'md', theme: 'dark', wpm: 180, minMs: 1500, ...userCfg.hud };
+// Under record-demo.sh the caption bar is drawn in post (DEMO_CAPTIONS_FILE is set). Imported into a repo's
+// own Playwright harness nothing draws it afterwards, so captions go on the page instead.
+const POST_PRODUCTION = !!process.env.DEMO_CAPTIONS_FILE;
+let hudCfg: HudConfig = { position: POST_PRODUCTION ? 'top' : 'overlay', size: 'md', theme: 'dark', wpm: 180, minMs: 1500, readingTime: true, hold: 1200, ...userCfg.hud };
 let calloutCfg: CalloutConfig = { color: '#f43f5e', ring: true, inShots: true, ...userCfg.callout };
 // motion (audience presets set it): zoom = × the zoom scale, cursor = × glide time and arc, pop = callouts
-// bounce in and their ring pulses
-type MotionConfig = { zoom: number; cursor: number; pop: boolean };
-let motionCfg: MotionConfig = { zoom: 1, cursor: 1, pop: false, ...userCfg.motion };
+// bounce in and their ring pulses. pace = × every on-camera pause (0 = instant, like --dry-run);
+// typeCapMs = most time one slowType may take (0 = no cap: every character at its delay).
+type MotionConfig = { zoom: number; cursor: number; pop: boolean; pace: number; typeCapMs: number };
+let motionCfg: MotionConfig = { zoom: 1, cursor: 1, pop: false, pace: 1, typeCapMs: 3500, ...userCfg.motion };
 
 /** Per-spec override of the persisted look, e.g. `demo.configure({ hud: { position: 'bottom' } })`. */
 export function configure(o: { hud?: Partial<HudConfig>; callout?: Partial<CalloutConfig>; motion?: Partial<MotionConfig> }): void {
@@ -183,9 +211,13 @@ const SPEED = Number(process.env.DEMO_SPEED) || 1;
 // in seconds instead of after a full take. Waits on the app itself (waitFor, actAndWait) stay real.
 export const DRY_RUN = process.env.DEMO_DRY_RUN === '1';
 
-/** The one way the toolkit pauses on camera: skipped in a dry run. */
+/** × every on-camera pause: motion.pace, 0 in a dry run. */
+const pace = (): number => (DRY_RUN ? 0 : Math.max(0, Number(motionCfg.pace ?? 1)));
+
+/** The one way the toolkit pauses on camera: scaled by motion.pace, skipped at pace 0 (dry run). */
 async function wait(page: Page, ms: number): Promise<void> {
-  if (!DRY_RUN && ms > 0) await page.waitForTimeout(ms);
+  const scaled = Math.round(ms * pace());
+  if (scaled > 0) await page.waitForTimeout(scaled);
 }
 
 /** How long `text` must be visible to be read: base + words at hud.wpm, clamped to [minMs, 7s],
@@ -312,7 +344,7 @@ export async function installCursor(page: Page): Promise<void> {
 /** After goto: settle + hydrate, then install the cursor. The canonical opener for a recorded flow. */
 export async function startRecording(page: Page, hydrateMs = 1200): Promise<void> {
   // capped: apps that poll or hold a websocket never reach networkidle
-  await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+  await page.waitForLoadState('networkidle', { timeout: pace() === 0 ? 2000 : 8000 }).catch(() => {});
   await wait(page, hydrateMs);
   await installCursor(page);
   // First call: cut the blank/loading lead-in so the video opens on the rendered app.
@@ -352,7 +384,7 @@ export async function hud(page: Page, text: string, opts: { voice?: LineVoice } 
     if (words > 12) console.warn(`[caption-lint] ${words} words — aim for ≤ 8, one idea; move detail into a callout: "${text}"`);
   }
   captionShownAt = now;
-  captionNeedMs = text ? Math.max(readMs(text), voice ? Math.round((voice.ms + 400) * SPEED) : 0) : 0;
+  captionNeedMs = text && hudCfg.readingTime !== false ? Math.max(readMs(text), voice ? Math.round((voice.ms + 400) * SPEED) : 0) : 0;
   const deltaMs = lastStepAt === null ? 0 : now - lastStepAt;
   console.log(`[step +${(deltaMs / 1000).toFixed(1)}s] ${text}`);
   lastStepAt = now;
@@ -591,9 +623,9 @@ export async function clearCallouts(page: Page): Promise<void> {
 /** Set a caption, then hold so the viewer can read it before the action runs. */
 /** Set a caption and pause the action for `holdMs`. The caption itself stays up at least its
  *  reading time (readMs) regardless — the next action may already start while it's being read. */
-export async function narrate(page: Page, text: string, holdMs = 1200, opts: { voice?: LineVoice } = {}): Promise<void> {
+export async function narrate(page: Page, text: string, holdMs?: number, opts: { voice?: LineVoice } = {}): Promise<void> {
   await hud(page, text, opts);
-  await wait(page, holdMs);
+  await wait(page, holdMs ?? Number(hudCfg.hold ?? 1200));
 }
 
 /** Move the mouse along a curved, eased path (human-like) from its current spot to (x, y). */
@@ -601,7 +633,7 @@ export async function humanMove(page: Page, x: number, y: number): Promise<void>
   const fromX = mouse.x;
   const fromY = mouse.y;
   const dist = Math.hypot(x - fromX, y - fromY);
-  if (dist < 2 || DRY_RUN) {
+  if (dist < 2 || pace() === 0) {
     if (dist >= 2) await page.mouse.move(x, y);
     mouse = { x, y };
     return;
@@ -725,13 +757,14 @@ export async function tap(page: Page, locator: Locator): Promise<void> {
  *  REPLACES the default instead of appending to it. Long text types faster so typing never takes
  *  more than ~3.5s of video (a 150-char prompt at 95ms/char would be 14s of dead air). */
 export async function slowType(page: Page, field: Locator, text: string, delayMs = 95): Promise<void> {
-  delayMs = Math.min(delayMs, Math.max(20, 3500 / Math.max(1, text.length)));
+  const cap = Number(motionCfg.typeCapMs ?? 3500);
+  if (cap > 0) delayMs = Math.min(delayMs, Math.max(20, cap / Math.max(1, text.length)));
   await moveTo(page, field);
   await field.click();
   await field.press('ControlOrMeta+a');
   await wait(page, 150);
-  if (DRY_RUN) await field.fill(text);
-  else await field.pressSequentially(text, { delay: delayMs });
+  if (pace() === 0) await field.fill(text);
+  else await field.pressSequentially(text, { delay: Math.round(delayMs * pace()) });
   await wait(page, 500);
 }
 
@@ -1032,6 +1065,8 @@ export async function withZoom(
 
 export const demo = {
   DRY_RUN,
+  begin,
+  saveTimeline,
   resetCursor,
   installCursor,
   startRecording,

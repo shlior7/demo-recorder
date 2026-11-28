@@ -1,0 +1,18 @@
+{
+  "name": "demo-recorder",
+  "version": "0.9.0",
+  "description": "The demo-recorder Playwright toolkit (cursor, captions, callouts, zoom, fast-forward) as a module a repo's own e2e specs can import.",
+  "license": "MIT",
+  "repository": "github:shlior7/demo-recorder",
+  "main": "dist/demo-recorder.js",
+  "types": "dist/demo-recorder.d.ts",
+  "files": [
+    "dist"
+  ],
+  "peerDependencies": {
+    "@playwright/test": ">=1.40"
+  },
+  "scripts": {
+    "build": "npx -y -p typescript@5.9.3 tsc -p tsconfig.build.json"
+  }
+}

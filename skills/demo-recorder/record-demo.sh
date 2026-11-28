@@ -20,7 +20,8 @@
 #   record-demo.sh voice ["Some caption"]          # install Chatterbox (once) and read a line with voice.* settings
 #   record-demo.sh setup ffmpeg                    # download a static ffmpeg + ffprobe into $DEMO_HOME (~60 MB) — ask first
 #   record-demo.sh setup hyperframes               # install HyperFrames into $DEMO_HOME (~130 MB + Chrome) for `present` — ask first
-#   record-demo.sh present <take.mp4>              # re-cut a take as a presentation (title, slides, framed footage) → -presentation.mp4
+#   record-demo.sh finish <dir> [--speed N]        # post-production for a .webm your own harness filmed (+ demo.saveTimeline(dir))
+#   record-demo.sh present <take.mp4>             # re-cut a take as a presentation (title, slides, framed footage) → -presentation.mp4
 #   record-demo.sh revoice <take.mp4> [--line T] [--energy E] [--say S] [--tries N]  # re-read captions, video untouched
 #   record-demo.sh share <video.mp4> --repo <worktree> [--pr N] [--video attach|page|link]
 #
@@ -129,7 +130,7 @@ set -- ${ARGS[@]+"${ARGS[@]}"}
 
 case "$CMD" in
   ""|-h|--help)
-    sed -n 3,29p "$0"; exit 0 ;;
+    sed -n 3,30p "$0"; exit 0 ;;
 
   init)
     shift; sync_runner >/dev/null
@@ -306,6 +307,24 @@ case "$CMD" in
     echo "▶ Re-voicing $(basename "$TAKE") with voice = $(config_json voice | tr -d '\n ') ${*:+ + $*}"
     DEMO_VOICE_OPTS="$(config_json voice)" "$VOICE_PY" "$SKILL_DIR/runner/revoice.py" "$TAKE" "$OUT" "$@" || exit 1
     echo "🎬 $(url_of "$OUT")"
+    exit 0 ;;
+
+  finish)
+    # post-production for a take a repo's own Playwright harness filmed: <dir> holds its .webm plus the
+    # captions/segments/steps.json that demo.saveTimeline(<dir>) wrote → <stem>.mp4, -sheet.png, -steps/, -chapters.json
+    shift; DIR="${1:?usage: record-demo.sh finish <dir> [--speed N]}"; shift
+    SPEED=1; [[ "${1:-}" == --speed ]] && SPEED="${2:?--speed needs a value}"
+    DIR="$(cd "$DIR" && pwd)" || exit 1
+    WEBM="$(find "$DIR" -maxdepth 1 -name '*.webm' -type f | head -1)"
+    [[ -n "$WEBM" ]] || { echo "✗ no .webm in $DIR" >&2; exit 1; }
+    [[ -f "$DIR/captions.json" ]] || echo "⚠ no captions.json in $DIR (call demo.saveTimeline(dir) in the spec) — no caption bar, fast-forward or step frames" >&2
+    need_ffmpeg; sync_runner >/dev/null
+    RUN_DIR="$(mktemp -d "$DEMO_HOME/runs/XXXXXX")"; trap 'rm -rf "$RUN_DIR"' EXIT
+    cp "$SKILL_DIR/runner/timeline.mjs" "$RUN_DIR/"   # resolves Playwright (caption PNGs) from $DEMO_HOME/node_modules
+    STEM="${WEBM%.webm}"
+    read -r DUR RAW_DUR <<<"$(node "$RUN_DIR/timeline.mjs" "$DIR" "$WEBM" "$STEM" "$SPEED" "$(config_json)")" || { echo "✗ post-production failed" >&2; exit 1; }
+    echo "🎬 video  ${DUR%.*}s from ${RAW_DUR%.*}s raw, ×$SPEED: $(url_of "$STEM.mp4")"
+    echo "🖼  sheet: $(url_of "$STEM-sheet.png")"
     exit 0 ;;
 
   present)
